@@ -1,0 +1,190 @@
+#root {
+  min-height: 100vh;
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 30px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 42px;
+}
+
+header p {
+  margin-top: 8px;
+}
+
+.system-online {
+  font-weight: bold;
+  color: green;
+  margin-top: 14px;
+}
+
+.system-offline {
+  font-weight: bold;
+  color: #c62828;
+  margin-top: 14px;
+}
+
+h2 {
+  margin-top: 48px;
+}
+
+
+/* SYSTEM HEALTH */
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.health-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  background: white;
+  border: 1px solid #e1e4e8;
+  border-radius: 10px;
+
+  padding: 20px;
+}
+
+.health-ok {
+  color: green;
+}
+
+.health-error {
+  color: #c62828;
+}
+
+
+/* SENSORS */
+
+.sensor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sensor-card {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  align-items: center;
+
+  padding: 20px 24px;
+
+  background: white;
+  border: 1px solid #e1e4e8;
+  border-radius: 10px;
+}
+
+.sensor-card p {
+  margin: 5px 0 0;
+}
+
+.status {
+  font-weight: bold;
+}
+
+.ok {
+  color: green;
+}
+
+.warning {
+  color: #b77900;
+}
+
+.critical {
+  color: #c62828;
+}
+
+
+/* ERRORS */
+
+.error-message {
+  margin-top: 30px;
+  padding: 16px;
+
+  background: #ffeaea;
+  border: 1px solid #ffb8b8;
+  border-radius: 8px;
+
+  color: #a40000;
+}
+
+/* DATA IMPORT */
+
+.import-panel {
+  margin-top: 48px;
+  padding: 24px;
+
+  background: white;
+  border: 1px solid #e1e4e8;
+  border-radius: 10px;
+}
+
+.import-panel h2 {
+  margin-top: 0;
+}
+
+.import-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  margin-top: 24px;
+}
+
+.import-controls button {
+  padding: 10px 18px;
+
+  border: 0;
+  border-radius: 6px;
+
+  background: #20242a;
+  color: white;
+
+  cursor: pointer;
+}
+
+.import-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selected-file {
+  margin-top: 18px;
+}
+
+.import-result {
+  margin-top: 20px;
+  padding: 16px;
+
+  border-radius: 8px;
+}
+
+.import-result p {
+  margin: 6px 0 0;
+}
+
+.import-result.success {
+  background: #edf8ed;
+  border: 1px solid #b7dfb7;
+}
+
+.import-result.failure {
+  background: #ffeaea;
+  border: 1px solid #ffb8b8;
+}

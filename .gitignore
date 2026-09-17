@@ -27,3 +27,6 @@ frontend/dist/
 
 # Test data
 data/uploads/
+
+# Editor backup files
+*~
