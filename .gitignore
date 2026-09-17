@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+backend/.venv/
+
+# Environment variables
+.env
+backend/.env
+
+# IDE / editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Test data
+data/uploads/
