@@ -46,7 +46,7 @@ function ImportPanel() {
       <div className="import-controls">
         <input
           type="file"
-          accept=".xls,.xlsx"
+          accept=".csv,.xls,.xlsx"
           onChange={(event) => {
             const selectedFile = event.target.files?.[0] ?? null
 

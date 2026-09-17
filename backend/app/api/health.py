@@ -1,17 +1,18 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.dependencies import get_ml_service
 from app.db.database import check_database_connection
-from app.ml.dummy import DummyMLService
+from app.ml.service import MLService
 from app.schemas.health import HealthResponse
 
 
 router = APIRouter()
 
-ml_service = DummyMLService()
-
 
 @router.get("/health", response_model=HealthResponse)
-def health():
+def health(
+    ml_service: MLService = Depends(get_ml_service),
+):
     database_connected = check_database_connection()
     ml_available = ml_service.health()
 

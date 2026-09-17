@@ -13,3 +13,8 @@ class MLService(ABC):
     def train(self) -> dict:
         """Запускает обучение модели."""
         pass
+
+    @abstractmethod
+    def predict(self, sensor_id: int) -> dict:
+        """Возвращает прогноз риска для датчика."""
+        pass

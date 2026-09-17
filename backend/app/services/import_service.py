@@ -4,7 +4,7 @@ from fastapi import UploadFile
 class ImportService:
     """Сервис импорта файлов с данными в ASTRA."""
 
-    ALLOWED_EXTENSIONS = {".xls", ".xlsx"}
+    ALLOWED_EXTENSIONS = {".csv", ".xls", ".xlsx"}
 
     def validate_file(self, file: UploadFile) -> bool:
         filename = file.filename or ""
@@ -18,7 +18,7 @@ class ImportService:
         if not self.validate_file(file):
             return {
                 "status": "error",
-                "message": "Поддерживаются только файлы XLS и XLSX",
+                "message": "Поддерживаются только файлы CSV, XLS и XLSX",
             }
 
         content = await file.read()

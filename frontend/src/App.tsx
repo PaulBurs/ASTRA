@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
 
+import { PredictionButton } from "./components/PredictionButton";
+
 import { getSensors, type Sensor } from "./api/sensors"
 import { getSystemHealth, type SystemHealth } from "./api/health"
 
@@ -128,6 +130,8 @@ function App() {
                   Риск: {Math.round(sensor.risk * 100)}%
                 </p>
               </div>
+
+              <PredictionButton sensorId={sensor.id} />
             </div>
           ))}
         </div>
