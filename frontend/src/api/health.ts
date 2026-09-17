@@ -1,3 +1,5 @@
+import { API_URL } from "../config"
+
 export interface SystemHealth {
   status: "ok" | "error"
   application: string
@@ -7,7 +9,7 @@ export interface SystemHealth {
 
 
 export async function getSystemHealth(): Promise<SystemHealth> {
-  const response = await fetch("http://127.0.0.1:8000/api/health")
+  const response = await fetch(`${API_URL}/api/health`)
 
   if (!response.ok) {
     throw new Error("Не удалось получить состояние ASTRA")
