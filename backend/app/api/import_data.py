@@ -1,6 +1,7 @@
 from fastapi import APIRouter, File, UploadFile
 
 from app.services.import_service import ImportService
+from app.schemas.import_data import ImportResponse
 
 
 router = APIRouter()
@@ -8,7 +9,7 @@ router = APIRouter()
 import_service = ImportService()
 
 
-@router.post("")
+@router.post("", response_model=ImportResponse)
 async def import_data(
     file: UploadFile = File(...)
 ):

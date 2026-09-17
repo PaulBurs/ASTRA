@@ -28,3 +28,11 @@ def test_sensor_structure():
     assert "value" in sensor
     assert "status" in sensor
     assert "risk" in sensor
+    
+def test_sensor_risk_range():
+    response = client.get("/api/sensors")
+
+    sensors = response.json()
+
+    for sensor in sensors:
+        assert 0.0 <= sensor["risk"] <= 1.0

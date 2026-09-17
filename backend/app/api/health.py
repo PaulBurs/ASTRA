@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.db.database import check_database_connection
 from app.ml.dummy import DummyMLService
+from app.schemas.health import HealthResponse
 
 
 router = APIRouter()
@@ -9,7 +10,7 @@ router = APIRouter()
 ml_service = DummyMLService()
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 def health():
     database_connected = check_database_connection()
     ml_available = ml_service.health()

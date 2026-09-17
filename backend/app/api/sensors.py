@@ -1,37 +1,16 @@
 from fastapi import APIRouter
 
+from app.repositories.dummy_sensor_repository import DummySensorRepository
+from app.schemas.sensor import SensorResponse
+from app.services.sensor_service import SensorService
+
 
 router = APIRouter()
 
-
-SENSORS = [
-    {
-        "id": 56682,
-        "name": "МК-1.1.1.1.1.1",
-        "type": "temperature",
-        "value": 25.0,
-        "status": "OK",
-        "risk": 0.12,
-    },
-    {
-        "id": 183582,
-        "name": "МК-2.2.2.2.2.14",
-        "type": "temperature",
-        "value": 25.4,
-        "status": "WARNING",
-        "risk": 0.63,
-    },
-    {
-        "id": 215811,
-        "name": "МК-6.7.8.2.2.189",
-        "type": "temperature",
-        "value": 33.5,
-        "status": "CRITICAL",
-        "risk": 0.91,
-    },
-]
+sensor_repository = DummySensorRepository()
+sensor_service = SensorService(sensor_repository)
 
 
-@router.get("")
+@router.get("", response_model=list[SensorResponse])
 def get_sensors():
-    return SENSORS
+    return sensor_service.get_sensors()
