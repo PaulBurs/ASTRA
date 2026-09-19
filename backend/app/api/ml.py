@@ -1,11 +1,19 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.dependencies import get_ml_service
+from app.core.dependencies import (
+    get_ml_service,
+    get_sensor_repository,
+)
 from app.ml.service import MLService
+from app.repositories.sensor_repository import SensorRepository
 from app.schemas.ml import (
     MLHealthResponse,
     MLPredictionResponse,
     MLTrainResponse,
+)
+from app.services.prediction_service import (
+    PredictionService,
+    SensorNotFoundError,
 )
 
 
@@ -35,5 +43,29 @@ def train_model(
 def predict(
     sensor_id: int,
     ml_service: MLService = Depends(get_ml_service),
+    sensor_repository: SensorRepository = Depends(
+        get_sensor_repository
+    ),
 ):
-    return ml_service.predict(sensor_id)
+    service = PredictionService(
+        sensor_repository=sensor_repository,
+        ml_service=ml_service,
+    )
+
+    try:
+        return service.predict(sensor_id)
+
+    except SensorNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Sensor not found",
+        )
+    
+    
+def test_ml_prediction_for_unknown_sensor():
+    response = client.get("/api/ml/predict/999999")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Sensor not found"
+    }

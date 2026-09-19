@@ -14,7 +14,13 @@ class TestSensorRepository(SensorRepository):
                 "risk": 0.25,
             }
         ]
+        
+    def get_by_id(self, sensor_id: int) -> dict | None:
+        for sensor in self.get_all():
+            if sensor["id"] == sensor_id:
+                return sensor
 
+        return None
 
 def test_sensor_service_uses_repository():
     repository = TestSensorRepository()
@@ -24,3 +30,13 @@ def test_sensor_service_uses_repository():
 
     assert len(sensors) == 1
     assert sensors[0]["name"] == "TEST-SENSOR"
+    
+    
+def test_sensor_service_get_sensor_by_id():
+    repository = TestSensorRepository()
+    service = SensorService(repository)
+
+    sensor = service.get_sensor(1)
+
+    assert sensor is not None
+    assert sensor["id"] == 1

@@ -31,3 +31,10 @@ class DummySensorRepository(SensorRepository):
                 "risk": 0.91,
             },
         ]
+
+    def get_by_id(self, sensor_id: int) -> dict | None:
+        for sensor in self.get_all():
+            if sensor["id"] == sensor_id:
+                return sensor
+
+        return None

@@ -22,6 +22,22 @@ services:
       DATABASE_URL: postgresql+psycopg://astra:astra@postgres:5432/astra
     ports:
       - "8000:8000"
+
+    volumes:
+      - ./backend/app:/app/app:Z
+      - ./backend/main.py:/app/main.py:Z
+
+    command:
+      [
+        "uvicorn",
+        "main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload"
+      ]
+
     depends_on:
       postgres:
         condition: service_healthy

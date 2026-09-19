@@ -9,3 +9,6 @@ class SensorService:
 
     def get_sensors(self) -> list[dict]:
         return self.repository.get_all()
+
+    def get_sensor(self, sensor_id: int) -> dict | None:
+        return self.repository.get_by_id(sensor_id)
