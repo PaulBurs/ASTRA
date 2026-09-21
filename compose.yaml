@@ -20,6 +20,7 @@ services:
       context: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg://astra:astra@postgres:5432/astra
+      ML_DATA_SOURCE: dummy
     ports:
       - "8000:8000"
 
