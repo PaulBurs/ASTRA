@@ -30,6 +30,7 @@ from app.repositories.sensor_catalog_repository import (
 from app.repositories.sensor_repository import (
     SensorRepository,
 )
+from app.ml.http_service import HTTPMLService
 
 
 def create_sensor_repository() -> SensorRepository:
@@ -69,7 +70,21 @@ def create_sensor_catalog_repository(
     return DummySensorCatalogRepository()
 
 
-_ml_service: MLService = DummyMLService()
+def create_ml_service() -> MLService:
+    ml_service_url = os.getenv(
+        "ML_SERVICE_URL",
+        "",
+    ).strip()
+
+    if ml_service_url:
+        return HTTPMLService(
+            ml_service_url
+        )
+
+    return DummyMLService()
+
+
+_ml_service: MLService = create_ml_service()
 
 _sensor_repository: SensorRepository = (
     create_sensor_repository()
