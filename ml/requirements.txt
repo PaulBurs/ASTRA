@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+pydantic
+
+numpy
+pandas
+scikit-learn
+joblib
+pyarrow
+
+sqlalchemy
+psycopg[binary]
+python-dotenv
+
+matplotlib
+jupyterlab
