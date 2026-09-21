@@ -1,164 +1,147 @@
-# ASTRA — ML workspace
+# ASTRA — ML
 
-Эта директория предназначена для разработки ML-части проекта ASTRA.
+Эта директория предназначена для ML-разработки проекта ASTRA.
 
-ASTRA решает задачу анализа истории инженерных датчиков и
-прогнозирования потенциально опасных состояний.
+Здесь описаны только четыре вещи:
 
-ML-код отделён от:
+- какое Python-окружение используется;
+- как подключить отдельное ML-окружение;
+- как получать данные из PostgreSQL;
+- что модель должна возвращать backend после работы.
 
-- REST API;
-- структуры PostgreSQL;
-- SQL-запросов;
-- frontend;
-- бизнес-логики web-приложения.
+---
 
-Основной принцип:
+# 1. Python-окружение
+
+В проекте уже существует backend-окружение:
 
 ```text
-PostgreSQL
-    ↓
-Backend repositories
-    ↓
-Backend services
-    ↓
-ML input
-    ↓
-ml/src
-    ↓
-Model
+backend/.venv
 ```
 
-ML-разработчик не должен писать SQL внутри `ml/src`.
+Оно содержит зависимости FastAPI, SQLAlchemy, Pydantic,
+PostgreSQL-драйверы и другие библиотеки backend.
 
----
-
-## 1. Текущий статус
-
-На текущем этапе реализован интеграционный каркас.
-
-Настоящая обученная модель пока не подключена.
-
-В backend уже существуют интерфейсы для:
-
-- поиска каналов нужного типа;
-- потокового чтения исторических событий;
-- получения истории для online prediction;
-- передачи типизированных данных в ML;
-- возврата prediction через REST API.
-
-Для разработки без большой PostgreSQL существуют Dummy repositories.
-
----
-
-## 2. Структура
-
-```text
-ml/
-├── example.py
-├── README.md
-│
-├── src/
-│   └── __init__.py
-│
-├── notebooks/
-│   └── .gitkeep
-│
-└── artifacts/
-    └── .gitkeep
-```
-
-Назначение:
-
-### `ml/example.py`
-
-Минимальный рабочий пример интеграции ML с backend.
-
-С него рекомендуется начать знакомство с проектом.
-
-### `ml/src/`
-
-Production ML-код:
-
-- preprocessing;
-- feature engineering;
-- dataset building;
-- training;
-- validation;
-- inference adapter;
-- model loading.
-
-### `ml/notebooks/`
-
-Jupyter notebooks для исследования данных.
-
-Notebook не должен становиться единственным местом,
-где существует важная preprocessing-логика.
-
-Рабочую логику после исследования необходимо переносить в `ml/src/`.
-
-### `ml/artifacts/`
-
-Локальные артефакты модели:
-
-- `.joblib`;
-- `.pkl`;
-- `.onnx`;
-- checkpoints;
-- другие бинарные модели.
-
-Большие модели не должны коммититься в Git.
-
----
-
-# 3. Быстрый старт
-
-Из корня ASTRA:
-
-```bash
-cd ~/Projects/ASTRA
-```
-
-Активировать backend virtual environment:
+Активировать его можно из корня проекта:
 
 ```bash
 source backend/.venv/bin/activate
 ```
 
-Запустить пример:
+Проверить используемый Python:
 
 ```bash
-python ml/example.py
+which python
+python --version
 ```
-
-Пример использует Dummy repositories и поэтому не требует
-наличия реальной большой базы данных.
 
 ---
 
-# 4. Архитектурная граница Backend ↔ ML
+# 2. Отдельное окружение для ML
 
-Для ML существуют два разных сценария.
-
-## Обучение
+Для ML рекомендуется использовать отдельное окружение:
 
 ```text
-SensorCatalogRepository
-        ↓
-поиск подходящих каналов
-        ↓
-TrainingDataRepository
-        ↓
-исторические события batch'ами
-        ↓
-MLTrainingDataService
-        ↓
-ml/src preprocessing
-        ↓
-feature engineering
-        ↓
-training
+ml/.venv
 ```
+
+Создать его:
+
+```bash
+cd ~/Projects/ASTRA
+
+python3.13 -m venv ml/.venv
+```
+
+Активировать:
+
+```bash
+source ml/.venv/bin/activate
+```
+
+Проверить:
+
+```bash
+which python
+```
+
+Ожидаемый путь:
+
+```text
+.../ASTRA/ml/.venv/bin/python
+```
+
+Backend и ML окружения не следует смешивать.
+
+Для работы с backend-контрактами в ML-окружение также необходимо
+установить backend dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r backend/requirements.txt
+```
+
+Дополнительные библиотеки ML устанавливаются отдельно, например:
+
+```bash
+python -m pip install numpy pandas scikit-learn
+```
+
+Если ML-команда добавляет новую обязательную библиотеку,
+её необходимо добавить в:
+
+```text
+ml/requirements.txt
+```
+
+Пример:
+
+```text
+numpy
+pandas
+scikit-learn
+joblib
+pyarrow
+```
+
+После этого новый разработчик сможет установить ML-зависимости:
+
+```bash
+python -m pip install -r ml/requirements.txt
+```
+
+Директория:
+
+```text
+ml/.venv/
+```
+
+не должна попадать в Git.
+
+---
+
+# 3. Как ML получает данные из БД
+
+ML-код не должен самостоятельно писать SQL к production PostgreSQL.
+
+Правильная схема:
+
+```text
+PostgreSQL
+    ↓
+Backend Repository
+    ↓
+Backend Service
+    ↓
+ML
+```
+
+Таким образом ML не зависит от физических названий таблиц,
+SQL-запросов и внутренней структуры PostgreSQL.
+
+---
+
+## Данные для обучения
 
 Основная точка входа:
 
@@ -166,161 +149,51 @@ training
 backend/app/services/ml_training_data_service.py
 ```
 
-ML-разработчику рекомендуется работать через:
+Используется:
 
 ```python
-service.iter_training_events(...)
+MLTrainingDataService
 ```
 
-а не обращаться к PostgreSQL самостоятельно.
-
----
-
-## Online prediction
-
-Online prediction обрабатывает один канал.
-
-```text
-REST API
-    ↓
-PredictionService
-    ↓
-MLDataRepository
-    ↓
-последнее временное окно событий
-    ↓
-MLPredictionInput
-    ↓
-MLService.predict(...)
-    ↓
-probability
-```
-
-Контракт входных данных находится здесь:
-
-```text
-backend/app/ml/contracts.py
-```
-
-Основной объект:
+Пример:
 
 ```python
-MLPredictionInput
+from datetime import datetime
+
+from app.services.ml_training_data_service import (
+    MLTrainingDataService,
+)
+
+for batch in service.iter_training_events(
+    engineering_system="Газовая охрана",
+    sensor_type="Газовый датчик",
+    start=datetime(2025, 1, 1),
+    end=datetime(2026, 1, 1),
+    batch_size=50_000,
+):
+    # preprocessing
+    # feature engineering
+    # dataset building
+    pass
 ```
 
-Он содержит:
+ML получает данные batch'ами.
 
-- `sensor_id`;
-- тип датчика;
-- инженерную систему;
-- название датчика;
-- объект;
-- время прогноза `as_of`;
-- размер исторического окна;
-- последовательность событий.
+Не нужно загружать всю историю БД в память одновременно.
 
 ---
 
-# 5. Источник данных
+## Откуда берутся sensor_id
 
-Исходные данные организованы следующим образом:
+ML не должен самостоятельно искать ID каналов SQL-запросом.
 
-```text
-Объект
-  ↓
-Канал / датчик
-  ↓
-События
-```
-
-Связи:
+Для этого используется:
 
 ```text
-ид_объект
+SensorCatalogRepository
 ```
 
-связывает объект и канал.
-
-```text
-ид_канала_данных
-```
-
-связывает канал с журналом событий.
-
-Подготовленный журнал событий:
-
-```text
-ext_journal_prepared
-```
-
-В нём используются следующие основные поля:
-
-```text
-ид_события
-ид_канала_данных
-дата_время_события
-тип_значения
-значение_число
-значение_дата_время
-значение_текст
-```
-
-Типы значения:
-
-```text
-numeric
-binary
-datetime
-text
-```
-
-ML должен использовать подготовленные типизированные поля,
-а не самостоятельно парсить `значение_датчика_raw`.
-
----
-
-# 6. Основное направление исследования — газ
-
-На текущем этапе основным кандидатом для ML является:
-
-```text
-Инженерная система:
-Газовая охрана
-
-Тип датчика:
-Газовый датчик
-```
-
-Рабочая гипотеза:
-
-```text
-история числовых значений
-        ↓
-изменение временного ряда
-        ↓
-состояние "Обнаружен газ"
-```
-
-Потенциальная target event:
-
-```text
-Обнаружен газ
-```
-
-Необходимо исследовать, существует ли статистически полезная
-динамика значений перед этим состоянием.
-
-Не следует заранее предполагать физический смысл чисел.
-Расшифровка измеряемой величины в предоставленной документации
-пока отсутствует.
-
----
-
-# 7. Как получить газовые каналы
-
-ML-коду не нужно знать SQL.
-
-Используется каталог:
+Через `MLTrainingDataService`:
 
 ```python
 sensor_ids = service.get_sensor_ids(
@@ -329,44 +202,23 @@ sensor_ids = service.get_sensor_ids(
 )
 ```
 
-После подключения реального справочника ожидается, что результат
-будет содержать реальные IDs газовых каналов.
-
-Dummy-реализация сейчас использует:
+Backend сам определяет, откуда получить эти ID:
 
 ```text
-900001
-900002
+Dummy repository
 ```
 
-Это искусственные тестовые IDs.
+или:
+
+```text
+PostgreSQL
+```
 
 ---
 
-# 8. Как читать обучающие данные
+## Формат события для обучения
 
-Нельзя загружать всю историю в Python одним запросом.
-
-Использовать batch processing:
-
-```python
-for batch in service.iter_training_events(
-    engineering_system="Газовая охрана",
-    sensor_type="Газовый датчик",
-    start=start,
-    end=end,
-    batch_size=50_000,
-):
-    process(batch)
-```
-
-Каждый `batch` представляет собой:
-
-```python
-list[dict]
-```
-
-Пример одного события:
+ML получает примерно такую структуру:
 
 ```python
 {
@@ -380,194 +232,52 @@ list[dict]
 }
 ```
 
----
-
-# 9. Почему данные читаются batch'ами
-
-Журнал очень большой.
-
-Один тип датчиков может содержать сотни миллионов событий.
-
-Поэтому запрещён подход:
-
-```python
-all_rows = load_everything()
-```
-
-или:
-
-```sql
-SELECT *
-FROM ext_journal_prepared;
-```
-
-Production-код должен использовать:
-
-- временной диапазон;
-- конкретные sensor IDs;
-- streaming;
-- ограниченный batch size.
-
----
-
-# 10. Feature engineering
-
-Backend намеренно НЕ вычисляет ML-features.
-
-Backend предоставляет корректную историю.
-
-Feature engineering является ответственностью ML.
-
-Примеры признаков, которые можно исследовать для numeric
-временного ряда:
+Возможные:
 
 ```text
-последнее значение
-mean
-median
-std
-min
-max
-
-delta
-slope
-
-mean за 5 минут
-mean за 30 минут
-mean за 1 час
-
-std за 1 час
-
-количество измерений в окне
-
-время с предыдущего измерения
-
-частота событий
-
-изменение относительно предыдущего окна
+value_type
 ```
 
-Это только кандидаты.
-
-Не следует считать их доказанно полезными до исследования данных
-и валидации модели.
-
----
-
-# 11. Формирование target
-
-Для газового датчика потенциальной целевой меткой является:
+значения:
 
 ```text
-Обнаружен газ
+numeric
+binary
+datetime
+text
 ```
 
-Пример постановки задачи:
-
-```text
-данные до момента T
-        ↓
-есть ли "Обнаружен газ"
-в следующие N часов?
-```
-
-Важно строго разделять:
-
-```text
-features:
-только информация, доступная ДО T
-
-target:
-события ПОСЛЕ T
-```
-
-Иначе возникает data leakage.
-
----
-
-# 12. Data leakage
-
-Это особенно важно для данной задачи.
-
-Нельзя использовать в features:
-
-- будущее событие `Обнаружен газ`;
-- значения после точки прогнозирования;
-- поля, которые непосредственно кодируют наступившую тревогу;
-- агрегаты, вычисленные с использованием будущих данных.
-
-Поле:
-
-```text
-тревожное_raw
-```
-
-пока не используется как feature.
-
-Его семантика должна быть отдельно проверена.
-
-Если оно напрямую отражает тревогу, использование его в модели
-может привести к leakage.
-
----
-
-# 13. Временное разделение train / validation / test
-
-Для временных рядов нельзя случайным образом перемешивать
-всю историю и затем делить строки.
-
-Предпочтительная логика:
-
-```text
-ранний период
-    ↓
-TRAIN
-
-более поздний период
-    ↓
-VALIDATION
-
-самый поздний период
-    ↓
-TEST
-```
-
-Иначе информация из будущего может попасть в обучение.
-
-Конкретные временные границы должны быть выбраны после
-анализа распределения данных.
-
----
-
-# 14. События разных типов
-
-`numeric`, `binary`, `datetime` и `text` не следует
-механически смешивать как одно числовое поле.
+Для разных типов необходимо использовать соответствующее поле.
 
 Например:
 
 ```text
 numeric
-0.03
-```
+    → numeric_value
 
-и:
+binary
+    → numeric_value
 
-```text
+datetime
+    → datetime_value
+
 text
-Обнаружен газ
+    → text_value
 ```
-
-имеют разный смысл.
-
-Сначала данные следует разделить по `value_type`,
-а затем определить preprocessing для каждого типа.
 
 ---
 
-# 15. Online prediction contract
+# 4. Данные для online prediction
 
-Контракт расположен здесь:
+При работе приложения ML не получает доступ ко всей базе.
+
+Backend сам собирает временное окно нужного датчика и создаёт:
+
+```text
+MLPredictionInput
+```
+
+Контракт находится здесь:
 
 ```text
 backend/app/ml/contracts.py
@@ -577,12 +287,12 @@ backend/app/ml/contracts.py
 
 ```python
 {
-    "sensor_id": ...,
-    "sensor_type": ...,
-    "engineering_system": ...,
-    "sensor_name": ...,
-    "object_id": ...,
-    "as_of": ...,
+    "sensor_id": 900001,
+    "sensor_type": "Газовый датчик",
+    "engineering_system": "Газовая охрана",
+    "sensor_name": "...",
+    "object_id": 1001,
+    "as_of": datetime(...),
     "lookback_hours": 24,
     "events": [
         ...
@@ -590,265 +300,318 @@ backend/app/ml/contracts.py
 }
 ```
 
-Будущая реальная реализация:
+ML получает этот объект через:
+
+```python
+MLService.predict(...)
+```
+
+ML не должен внутри `predict()` самостоятельно обращаться
+к PostgreSQL.
+
+Правильная схема:
+
+```text
+sensor_id
+    ↓
+PredictionService
+    ↓
+MLDataRepository
+    ↓
+PostgreSQL
+    ↓
+MLPredictionInput
+    ↓
+MLService.predict()
+```
+
+---
+
+# 5. Как подключать backend-контракты из ML
+
+Backend Python package находится в:
+
+```text
+backend/app
+```
+
+При запуске собственных ML-скриптов из корня проекта можно
+добавить backend в Python path:
+
+
+После этого доступны импорты:
+
+```python
+from app.ml.contracts import MLPredictionInput
+```
+
+и:
+
+```python
+from app.services.ml_training_data_service import (
+    MLTrainingDataService,
+)
+```
+
+---
+
+# 6. Что должна возвращать модель
+
+Основной интерфейс ML находится здесь:
+
+```text
+backend/app/ml/service.py
+```
+
+Реальная модель должна реализовать:
 
 ```python
 class RealMLService(MLService):
+    ...
+```
+
+Главный метод:
+
+```python
+def predict(
+    self,
+    prediction_input: MLPredictionInput,
+) -> dict:
+    ...
+```
+
+После расчёта модель должна вернуть:
+
+```python
+{
+    "sensor_id": prediction_input.sensor_id,
+    "probability": 0.73,
+    "horizon_hours": 24,
+    "model_version": "gas-v1",
+}
+```
+
+---
+
+## sensor_id
+
+ID канала, для которого построен прогноз:
+
+```python
+"sensor_id": 900001
+```
+
+Он должен совпадать с:
+
+```python
+prediction_input.sensor_id
+```
+
+---
+
+## probability
+
+Вероятность прогнозируемого события:
+
+```python
+"probability": 0.73
+```
+
+Допустимый диапазон:
+
+```text
+0.0 <= probability <= 1.0
+```
+
+Пример:
+
+```text
+0.00 → 0%
+0.42 → 42%
+0.91 → 91%
+1.00 → 100%
+```
+
+ML должен возвращать именно вероятность от `0` до `1`,
+а не процент от `0` до `100`.
+
+---
+
+## horizon_hours
+
+Горизонт прогноза:
+
+```python
+"horizon_hours": 24
+```
+
+То есть модель отвечает примерно на вопрос:
+
+```text
+Какова вероятность целевого события
+в течение следующих 24 часов?
+```
+
+Если ML-команда меняет горизонт, это необходимо согласовать
+с backend-командой.
+
+---
+
+## model_version
+
+Версия модели:
+
+```python
+"model_version": "gas-v1"
+```
+
+При обновлении модели версия должна изменяться.
+
+Например:
+
+```text
+gas-v1
+gas-v2
+gas-2026-09-01
+```
+
+Это позволяет понимать, какая именно модель построила прогноз.
+
+---
+
+# 7. Пример реализации модели
+
+Минимальный пример:
+
+```python
+from app.ml.contracts import MLPredictionInput
+from app.ml.service import MLService
+
+
+class RealMLService(MLService):
+
+    def health(self) -> bool:
+        return True
+
+    def train(self) -> dict:
+        return {
+            "status": "completed",
+            "model_version": "gas-v1",
+            "message": "Training completed",
+        }
 
     def predict(
         self,
         prediction_input: MLPredictionInput,
     ) -> dict:
-        features = ...
-        probability = ...
+        # 1. preprocessing
+        # 2. feature engineering
+        # 3. model.predict_proba(...)
+        probability = 0.73
 
         return {
             "sensor_id": prediction_input.sensor_id,
             "probability": probability,
             "horizon_hours": 24,
-            "model_version": "...",
+            "model_version": "gas-v1",
         }
 ```
 
-REST frontend не должен знать,
-какие признаки использует модель.
+Модель не должна:
+
+```text
+возвращать HTTP Response;
+обращаться к frontend;
+писать данные напрямую в UI;
+самостоятельно формировать REST JSON;
+самостоятельно читать production PostgreSQL.
+```
+
+Она возвращает обычный Python `dict`.
+
+Дальше backend сам:
+
+```text
+MLService
+    ↓
+PredictionService
+    ↓
+FastAPI
+    ↓
+REST JSON
+    ↓
+Frontend
+```
 
 ---
 
-# 16. Где писать ML-код
+# 8. Результат обучения
 
-Рекомендуемая будущая структура:
+Метод:
 
-```text
-ml/src/
-├── __init__.py
-├── preprocessing.py
-├── features.py
-├── dataset.py
-├── train.py
-├── evaluate.py
-└── model.py
+```python
+train()
 ```
+
+должен вернуть краткую информацию о результате:
+
+```python
+{
+    "status": "completed",
+    "model_version": "gas-v1",
+    "message": "Training completed successfully",
+}
+```
+
+Сама обученная модель должна сохраняться отдельно как artifact,
+а не передаваться через REST API.
 
 Например:
 
 ```text
-preprocessing.py
+ml/artifacts/gas-v1.joblib
 ```
 
-очистка и преобразование событий.
-
-```text
-features.py
-```
-
-feature engineering.
-
-```text
-dataset.py
-```
-
-построение обучающих примеров и target.
-
-```text
-train.py
-```
-
-обучение.
-
-```text
-evaluate.py
-```
-
-метрики и временная validation.
-
-```text
-model.py
-```
-
-сохранение, загрузка и inference.
-
-Эту структуру можно менять по согласованию с ML-командой.
+Большие model artifacts не должны коммититься в Git.
 
 ---
 
-# 17. Что ML-разработчику делать не нужно
+# 9. Главное правило интеграции
 
-Не нужно:
-
-```text
-писать REST endpoints
-```
-
-Не нужно:
+ML отвечает за:
 
 ```text
-знать пароль PostgreSQL для production inference
+events
+    ↓
+preprocessing
+    ↓
+features
+    ↓
+model
+    ↓
+probability
 ```
 
-Не нужно:
+Backend отвечает за:
 
 ```text
-писать SQL внутри feature engineering
+PostgreSQL
+    ↓
+repositories
+    ↓
+services
+    ↓
+MLPredictionInput
 ```
 
-Не нужно:
+После работы модели backend ожидает:
 
 ```text
-менять frontend
+sensor_id
+probability
+horizon_hours
+model_version
 ```
 
-Не нужно:
-
-```text
-зависеть от структуры таблиц PostgreSQL
-```
-
-Для этого существует backend abstraction layer.
-
----
-
-# 18. Backend-код, полезный ML-разработчику
-
-Основные файлы:
-
-```text
-backend/app/ml/contracts.py
-
-backend/app/ml/service.py
-
-backend/app/services/prediction_service.py
-
-backend/app/services/ml_training_data_service.py
-
-backend/app/repositories/ml_data_repository.py
-
-backend/app/repositories/training_data_repository.py
-
-backend/app/repositories/sensor_catalog_repository.py
-```
-
-Dummy implementations:
-
-```text
-backend/app/repositories/dummy_ml_data_repository.py
-
-backend/app/repositories/dummy_training_data_repository.py
-
-backend/app/repositories/dummy_sensor_catalog_repository.py
-```
-
-PostgreSQL implementation исторического журнала:
-
-```text
-backend/app/repositories/postgres_ml_data_repository.py
-
-backend/app/repositories/postgres_training_data_repository.py
-```
-
----
-
-# 19. Что пока не завершено
-
-До полного подключения production PostgreSQL ещё необходимо:
-
-1. узнать физическое имя таблицы справочника каналов;
-2. реализовать `PostgresSensorCatalogRepository`;
-3. проверить реальные индексы PostgreSQL;
-4. проверить скорость выборок на большом журнале;
-5. определить окончательный prediction lookback;
-6. определить ML target horizon;
-7. исследовать смысл числовых значений газовых датчиков;
-8. реализовать настоящий ML model pipeline.
-
-До выполнения этих шагов Dummy implementations являются
-официальным способом разработки интеграции.
-
----
-
-# 20. Проверка backend после изменений
-
-Из корня проекта:
-
-```bash
-cd ~/Projects/ASTRA/backend
-source .venv/bin/activate
-
-python -m tabnanny app tests
-pytest -v
-```
-
-Все тесты должны проходить без:
-
-```text
-FAILED
-ERROR
-```
-
----
-
-# 21. Проверка ML example
-
-```bash
-cd ~/Projects/ASTRA
-source backend/.venv/bin/activate
-
-python ml/example.py
-```
-
-Скрипт должен:
-
-1. найти тестовые газовые каналы;
-2. получить историю событий;
-3. получить её несколькими batch'ами;
-4. вывести события;
-5. завершиться без прямого SQL.
-
----
-
-# 22. Правило интеграции
-
-Если ML-разработчику не хватает данных:
-
-не добавлять SQL непосредственно в `ml/src`.
-
-Сначала сформулировать необходимый контракт, например:
-
-```text
-Мне нужны за последние 6 часов:
-
-- numeric значения;
-- состояние устройства;
-- timestamp;
-- object_id;
-- sensor_type.
-```
-
-После этого backend расширяет repository/service contract.
-
-Так ML-модель остаётся независимой от внутренней структуры БД.
-
----
-
-# 23. Основной принцип
-
-ML-команда отвечает за:
-
-```text
-данные → признаки → модель → probability
-```
-
-Backend-команда отвечает за:
-
-```text
-PostgreSQL → корректные данные → ML contract
-```
-
-Frontend-команда отвечает за:
-
-```text
-REST API → отображение результата
-```
-
-Такое разделение позволяет менять модель, БД и интерфейс
-независимо друг от друга.
+ML-разработчику не требуется знать устройство REST API
+или frontend.

@@ -8,6 +8,7 @@ __pycache__/
 
 .venv/
 backend/.venv/
+ml/.venv/
 
 .pytest_cache/
 .mypy_cache/
