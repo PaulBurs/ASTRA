@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.core.dependencies import get_ml_service
 from app.ml.service import MLService
 from main import app
+from app.ml.contracts import MLPredictionInput
 
 
 client = TestClient(app)
@@ -19,9 +20,12 @@ class UnavailableMLService(MLService):
             "message": "Test model",
         }
         
-    def predict(self, sensor_id: int) -> dict:
+    def predict(
+        self,
+        prediction_input: MLPredictionInput,
+    ) -> dict:
         return {
-            "sensor_id": sensor_id,
+            "sensor_id": prediction_input.sensor_id,
             "probability": 0.0,
             "horizon_hours": 24,
             "model_version": "test-v1",

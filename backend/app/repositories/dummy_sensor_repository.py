@@ -13,6 +13,10 @@ class DummySensorRepository(SensorRepository):
                 "value": 25.0,
                 "status": "OK",
                 "risk": 0.12,
+                "engineering_system": "Диспетчерский контроль",
+				"object_id": 1001,
+				"value_type": "numeric",
+				"occurred_at": None,
             },
             {
                 "id": 183582,
@@ -21,6 +25,10 @@ class DummySensorRepository(SensorRepository):
                 "value": 25.4,
                 "status": "WARNING",
                 "risk": 0.63,
+                "engineering_system": "Диспетчерский контроль",
+				"object_id": 1001,
+				"value_type": "numeric",
+				"occurred_at": None,
             },
             {
                 "id": 215811,
@@ -29,6 +37,10 @@ class DummySensorRepository(SensorRepository):
                 "value": 33.5,
                 "status": "CRITICAL",
                 "risk": 0.91,
+                "engineering_system": "Диспетчерский контроль",
+				"object_id": 1001,
+				"value_type": "numeric",
+				"occurred_at": None,
             },
         ]
 
