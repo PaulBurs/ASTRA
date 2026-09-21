@@ -1,3 +1,5 @@
+from app.api.dashboard import router as dashboard_router
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -48,6 +50,12 @@ app.include_router(
     import_router,
     prefix="/api/import",
     tags=["Data Import"],
+)
+
+app.include_router(
+    dashboard_router,
+    prefix="/api/dashboard",
+    tags=["Dashboard"],
 )
 
 

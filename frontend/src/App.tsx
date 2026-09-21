@@ -1,40 +1,97 @@
 import { useEffect, useState } from "react"
 
 import { PredictionButton } from "./components/PredictionButton";
+import { SensorDetails } from "./components/SensorDetails"
 
-import { getSensors, type Sensor } from "./api/sensors"
-import { getSystemHealth, type SystemHealth } from "./api/health"
+import type {
+  Sensor,
+  SensorStatus,
+} from "./api/sensors"
+
+import type { SystemHealth } from "./api/health"
+import {
+  getDashboard,
+  type DashboardSummary,
+} from "./api/dashboard"
 
 import "./App.css"
 
 import ImportPanel from "./components/ImportPanel"
 
 
+type SensorFilter = "ALL" | SensorStatus
+type SensorSort =
+  | "RISK_DESC"
+  | "RISK_ASC"
+  | "VALUE_DESC"
+  | "NAME_ASC"
+  
+  
 function App() {
   const [sensors, setSensors] = useState<Sensor[]>([])
   const [health, setHealth] = useState<SystemHealth | null>(null)
+  const [summary, setSummary] =
+  useState<DashboardSummary | null>(null)
+  const [sensorFilter, setSensorFilter] =
+  useState<SensorFilter>("ALL")
+  const [selectedSensor, setSelectedSensor] =
+  useState<Sensor | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [sensorSort, setSensorSort] =
+  useState<SensorSort>("RISK_DESC")
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const visibleSensors = sensors
+  .filter((sensor) => {
+    const matchesStatus =
+      sensorFilter === "ALL" ||
+      sensor.status === sensorFilter
+
+    const query = searchQuery
+      .trim()
+      .toLowerCase()
+
+    const matchesSearch =
+      query === "" ||
+      sensor.name.toLowerCase().includes(query) ||
+      String(sensor.id).includes(query)
+
+    return matchesStatus && matchesSearch
+  })
+  .sort((a, b) => {
+    switch (sensorSort) {
+      case "RISK_ASC":
+        return a.risk - b.risk
+
+      case "VALUE_DESC":
+        return b.value - a.value
+
+      case "NAME_ASC":
+        return a.name.localeCompare(b.name, "ru")
+
+      case "RISK_DESC":
+      default:
+        return b.risk - a.risk
+    }
+  })
 
   useEffect(() => {
-    Promise.all([
-      getSensors(),
-      getSystemHealth(),
-    ])
-      .then(([sensorsData, healthData]) => {
-        setSensors(sensorsData)
-        setHealth(healthData)
-        setError(null)
-      })
-      .catch(() => {
-        setError("Не удалось подключиться к ASTRA API")
-      })
-      .finally(() => {
-        setLoading(false)
-      })
-  }, [])
+  getDashboard()
+    .then((dashboard) => {
+      setSensors(dashboard.sensors)
+      setHealth(dashboard.system)
+      setSummary(dashboard.summary)
+      setError(null)
+    })
+    .catch(() => {
+      setError("Не удалось подключиться к ASTRA API")
+    })
+    .finally(() => {
+      setLoading(false)
+    })
+}, [])
 
 
   return (
@@ -105,16 +162,137 @@ function App() {
           </div>
         </>
       )}
+      
+      {summary && (
+        <>
+          <h2>Сводка</h2>
+
+          <div className="summary-grid">
+            <div className="summary-card">
+              <span>Всего датчиков</span>
+              <strong>{summary.total_sensors}</strong>
+            </div>
+
+            <div className="summary-card summary-ok">
+              <span>Норма</span>
+              <strong>{summary.ok}</strong>
+            </div>
+
+            <div className="summary-card summary-warning">
+              <span>Предупреждение</span>
+              <strong>{summary.warning}</strong>
+            </div>
+
+            <div className="summary-card summary-critical">
+              <span>Критические</span>
+              <strong>{summary.critical}</strong>
+            </div>
+
+            <div className="summary-card summary-risk">
+              <span>Максимальный риск</span>
+
+              <strong>
+                {Math.round(summary.max_risk * 100)}%
+              </strong>
+
+              <div className="risk-track">
+                <div
+                  className={`risk-fill ${
+                    summary.max_risk >= 0.7
+                      ? "risk-critical"
+                      : summary.max_risk >= 0.4
+                        ? "risk-warning"
+                        : "risk-ok"
+                  }`}
+                  style={{
+                    width: `${Math.round(
+                      summary.max_risk * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
 
       <h2>Датчики</h2>
+      
+      <div className="sensor-toolbar">
+		  <div className="sensor-controls">
+			<input
+			  type="search"
+			  placeholder="Поиск по ID или названию..."
+			  value={searchQuery}
+			  onChange={(event) =>
+				setSearchQuery(event.target.value)
+			  }
+			/>
+
+			<label>
+			  Статус:
+
+			  <select
+				value={sensorFilter}
+				onChange={(event) =>
+				  setSensorFilter(
+				    event.target.value as SensorFilter
+				  )
+				}
+			  >
+				<option value="ALL">Все</option>
+				<option value="CRITICAL">Критические</option>
+				<option value="WARNING">Предупреждение</option>
+				<option value="OK">Норма</option>
+			  </select>
+			</label>
+
+			<label>
+			  Сортировка:
+
+			  <select
+				value={sensorSort}
+				onChange={(event) =>
+				  setSensorSort(
+				    event.target.value as SensorSort
+				  )
+				}
+			  >
+				<option value="RISK_DESC">
+				  Риск: сначала высокий
+				</option>
+
+				<option value="RISK_ASC">
+				  Риск: сначала низкий
+				</option>
+
+				<option value="VALUE_DESC">
+				  Значение: по убыванию
+				</option>
+
+				<option value="NAME_ASC">
+				  Название
+				</option>
+			  </select>
+			</label>
+		  </div>
+
+  <span>
+    Показано: {visibleSensors.length} из {sensors.length}
+  </span>
+</div>
 
       {loading && <p>Загрузка...</p>}
 
       {!loading && !error && (
         <div className="sensor-list">
-          {sensors.map((sensor) => (
-            <div className="sensor-card" key={sensor.id}>
+          {visibleSensors.map((sensor) => (
+            <div
+			  className={`sensor-card sensor-${sensor.status.toLowerCase()}`}
+			  key={sensor.id}
+			  onClick={() => setSelectedSensor(sensor)}
+			>
               <div>
                 <strong>{sensor.name}</strong>
                 <p>{sensor.type}</p>
@@ -135,6 +313,13 @@ function App() {
             </div>
           ))}
         </div>
+      )}
+      
+      {selectedSensor && (
+        <SensorDetails
+          sensor={selectedSensor}
+          onClose={() => setSelectedSensor(null)}
+        />
       )}
       
       <ImportPanel />

@@ -1,32 +1,82 @@
+# =========================
 # Python
+# =========================
+
 __pycache__/
 *.py[cod]
 *.pyo
 
-# Virtual environment
 .venv/
 backend/.venv/
 
-# Environment variables
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+
+# =========================
+# Environment / secrets
+# =========================
+
 .env
+.env.*
+!.env.example
+
 backend/.env
+frontend/.env
 
-# IDE / editors
-.vscode/
-.idea/
 
-# OS
-.DS_Store
-
-# Logs
-*.log
-
+# =========================
 # Frontend
+# =========================
+
 frontend/node_modules/
 frontend/dist/
 
-# Test data
+
+# =========================
+# ML
+# =========================
+
+ml/notebooks/.ipynb_checkpoints/
+
+ml/artifacts/*
+!ml/artifacts/.gitkeep
+
+*.joblib
+*.pkl
+*.pickle
+*.onnx
+
+
+# =========================
+# Runtime / uploaded data
+# =========================
+
 data/uploads/
 
-# Editor backup files
+
+# =========================
+# IDE / editors
+# =========================
+
+.vscode/
+.idea/
+
 *~
+
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+
+
+# =========================
+# Logs
+# =========================
+
+*.log

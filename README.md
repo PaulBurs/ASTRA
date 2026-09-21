@@ -1,32 +1,1514 @@
 # ASTRA
 
-ASTRA — прототип веб-системы мониторинга инженерной инфраструктуры для прогнозирования аварий и поддержки управления ремонтами инженерных коллекторов.
+ASTRA — веб-сервис для мониторинга инженерной инфраструктуры, оценки текущего состояния датчиков и интеграции прогнозной ML-модели риска аварий.
 
-Проект разрабатывается как интеграционный каркас: frontend, backend, PostgreSQL и интерфейс ML-компонента разделены так, чтобы разработчики могли независимо подключать реальную базу данных и модель машинного обучения.
+Проект собирается как единая система из нескольких независимых частей:
 
-## Архитектура
+- **Frontend** — интерфейс диспетчера на React + TypeScript + Vite.
+- **Backend** — REST API на FastAPI.
+- **PostgreSQL** — база данных проекта.
+- **ML** — отдельная рабочая зона для исследования данных, обучения модели и подготовки артефактов.
+- **Docker Compose** — локальный запуск PostgreSQL, backend и frontend.
+- **GitHub Actions** — автоматические проверки backend и frontend при push / Pull Request.
+
+На текущем этапе ASTRA представляет собой интеграционный каркас: архитектура, API-контракты, UI, тесты, Docker и CI уже работают, но реальная база данных и реальная ML-модель подключаются отдельными разработчиками.
+
+---
+
+## Содержание
+
+1. [Архитектура](#архитектура)
+2. [Структура репозитория](#структура-репозитория)
+3. [Технологии](#технологии)
+4. [Быстрый старт](#быстрый-старт)
+5. [Запуск одной командой](#запуск-одной-командой)
+6. [Docker](#docker)
+7. [Frontend](#frontend)
+8. [Backend](#backend)
+9. [ML](#ml)
+10. [База данных](#база-данных)
+11. [REST API](#rest-api)
+12. [Импорт данных](#импорт-данных)
+13. [Тесты](#тесты)
+14. [GitHub Actions](#github-actions)
+15. [Git workflow](#git-workflow)
+16. [Правила разработки](#правила-разработки)
+17. [Переменные окружения](#переменные-окружения)
+18. [Что уже реализовано](#что-уже-реализовано)
+19. [Что пока является заглушкой](#что-пока-является-заглушкой)
+20. [Типовые сценарии разработки](#типовые-сценарии-разработки)
+21. [Полезные команды](#полезные-команды)
+
+---
+
+# Архитектура
+
+Общая схема приложения:
 
 ```text
-Пользователь
-    │
-    ▼
-React + TypeScript
-Frontend :5173
-    │
-    │ REST API
-    ▼
-FastAPI
-Backend :8000
-    │
-    ├──────────────► PostgreSQL :5432
-    │
-    └──────────────► MLService
-                         │
-                         ▼
-                    DummyMLService
-                    (временная заглушка)
-                    
-                    
-                    
-                    
+┌──────────────────────────────┐
+│        React Frontend        │
+│   TypeScript + Vite          │
+└──────────────┬───────────────┘
+               │ REST / JSON
+               ▼
+┌──────────────────────────────┐
+│          FastAPI             │
+│            API               │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│        Service Layer         │
+│                              │
+│ SensorService                │
+│ PredictionService            │
+│ DashboardService             │
+│ HealthService                │
+│ ImportService                │
+└─────────┬───────────┬────────┘
+          │           │
+          ▼           ▼
+┌────────────────┐  ┌────────────────┐
+│ SensorRepository│  │   MLService    │
+└───────┬────────┘  └───────┬────────┘
+        │                   │
+        ▼                   ▼
+┌────────────────┐  ┌────────────────┐
+│ PostgreSQL     │  │ Real ML model  │
+│ implementation│  │ implementation │
+└────────────────┘  └────────────────┘
+```
 
+Основной принцип проекта:
+
+```text
+Frontend не знает структуру PostgreSQL.
+Backend API не знает внутреннее устройство ML-модели.
+ML-код не должен зависеть от HTTP/UI.
+Бизнес-логика не должна находиться внутри REST endpoint-ов.
+```
+
+Это позволяет frontend-, backend-, DB- и ML-разработчикам работать параллельно.
+
+---
+
+# Структура репозитория
+
+```text
+ASTRA/
+├── .github/
+│   └── workflows/
+│       └── backend-tests.yml
+│
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── dashboard.py
+│   │   │   ├── health.py
+│   │   │   ├── import_data.py
+│   │   │   ├── ml.py
+│   │   │   └── sensors.py
+│   │   │
+│   │   ├── core/
+│   │   │   └── dependencies.py
+│   │   │
+│   │   ├── db/
+│   │   │   └── database.py
+│   │   │
+│   │   ├── ml/
+│   │   │   ├── service.py
+│   │   │   └── dummy.py
+│   │   │
+│   │   ├── repositories/
+│   │   │   ├── sensor_repository.py
+│   │   │   └── dummy_sensor_repository.py
+│   │   │
+│   │   ├── schemas/
+│   │   │   ├── dashboard.py
+│   │   │   ├── health.py
+│   │   │   ├── import_data.py
+│   │   │   ├── ml.py
+│   │   │   └── sensor.py
+│   │   │
+│   │   └── services/
+│   │       ├── dashboard_service.py
+│   │       ├── health_service.py
+│   │       ├── import_service.py
+│   │       ├── prediction_service.py
+│   │       └── sensor_service.py
+│   │
+│   ├── tests/
+│   ├── .env.example
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── main.py
+│
+├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   │   ├── dashboard.ts
+│   │   │   ├── health.ts
+│   │   │   ├── ml.ts
+│   │   │   └── sensors.ts
+│   │   │
+│   │   ├── components/
+│   │   │   ├── ImportPanel.tsx
+│   │   │   ├── PredictionButton.tsx
+│   │   │   └── SensorDetails.tsx
+│   │   │
+│   │   ├── App.tsx
+│   │   ├── App.css
+│   │   └── config.ts
+│   │
+│   ├── .env.example
+│   ├── Dockerfile
+│   ├── package.json
+│   └── package-lock.json
+│
+├── ml/
+│   ├── src/
+│   │   └── __init__.py
+│   ├── notebooks/
+│   ├── artifacts/
+│   │   └── .gitkeep
+│   └── README.md
+│
+├── data/
+├── docs/
+│
+├── compose.yaml
+├── astra.sh
+├── launch-astra.sh
+├── README.md
+└── .gitignore
+```
+
+Структура может расширяться, но границы зон ответственности желательно сохранять.
+
+---
+
+# Технологии
+
+## Backend
+
+- Python 3.13
+- FastAPI
+- Pydantic
+- SQLAlchemy
+- psycopg
+- pytest
+
+## Frontend
+
+- Node.js 22
+- React
+- TypeScript
+- Vite
+
+## Infrastructure
+
+- PostgreSQL 16
+- Docker
+- Docker Compose
+- GitHub Actions
+- Linux / Fedora как основная локальная среда разработки
+
+> В проекте используется команда `docker-compose` с дефисом.
+
+---
+
+# Быстрый старт
+
+## 1. Клонировать репозиторий
+
+```bash
+git clone https://github.com/PaulBurs/ASTRA.git
+cd ASTRA
+```
+
+## 2. Подготовить backend
+
+```bash
+cd backend
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Создать локальный `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Пример:
+
+```env
+DATABASE_URL=postgresql+psycopg://astra:astra@localhost:5432/astra
+```
+
+Вернуться в корень:
+
+```bash
+cd ..
+```
+
+## 3. Подготовить frontend
+
+```bash
+cd frontend
+npm ci
+cp .env.example .env
+cd ..
+```
+
+Пример frontend `.env`:
+
+```env
+VITE_API_URL=http://127.0.0.1:8000
+```
+
+## 4. Первый запуск
+
+При первом запуске Docker-образы backend/frontend ещё отсутствуют, поэтому используется полная сборка:
+
+```bash
+./astra.sh rebuild
+```
+
+После того как образы уже существуют, обычный запуск:
+
+```bash
+./astra.sh
+```
+
+---
+
+# Запуск одной командой
+
+В корне проекта находится:
+
+```text
+astra.sh
+```
+
+Обычный запуск:
+
+```bash
+./astra.sh
+```
+
+Скрипт выполняет:
+
+```text
+проверка окружения
+       ↓
+запуск PostgreSQL
+       ↓
+ожидание готовности PostgreSQL
+       ↓
+pytest
+       ↓
+npm run build
+       ↓
+запуск backend + frontend
+       ↓
+проверка API и frontend
+       ↓
+открытие браузера
+```
+
+После запуска доступны:
+
+```text
+Frontend: http://127.0.0.1:5173
+API:      http://127.0.0.1:8000
+Swagger:  http://127.0.0.1:8000/docs
+```
+
+## Полная пересборка
+
+Использовать после изменения:
+
+- `Dockerfile`;
+- `requirements.txt`;
+- `package.json` / `package-lock.json`;
+- Docker-конфигурации, влияющей на образ.
+
+```bash
+./astra.sh rebuild
+```
+
+Не нужно делать полную пересборку после обычного изменения `.py`, `.ts`, `.tsx` или `.css`.
+
+## Остановить проект
+
+```bash
+./astra.sh stop
+```
+
+## Состояние сервисов
+
+```bash
+./astra.sh status
+```
+
+## Логи
+
+```bash
+./astra.sh logs
+```
+
+---
+
+# Docker
+
+Основные сервисы описаны в:
+
+```text
+compose.yaml
+```
+
+Запускаются:
+
+```text
+postgres
+backend
+frontend
+```
+
+## PostgreSQL
+
+```text
+localhost:5432
+```
+
+## Backend
+
+```text
+localhost:8000
+```
+
+Backend работает с Uvicorn в режиме reload. Исходники backend подключены в контейнер через bind mount.
+
+Поэтому обычное изменение Python-кода:
+
+```text
+изменить файл
+   ↓
+Ctrl+S
+   ↓
+Uvicorn автоматически перезапускается
+```
+
+Пересобирать Docker-образ не требуется.
+
+## Frontend
+
+```text
+localhost:5173
+```
+
+Frontend работает через Vite dev server. `frontend/src` подключён через bind mount.
+
+При сохранении `.ts`, `.tsx` и `.css` Vite автоматически обновляет приложение.
+
+## Важно для Fedora / SELinux
+
+В `compose.yaml` bind mounts могут использовать суффикс:
+
+```text
+:Z
+```
+
+Он нужен для корректной работы volume-монтирования при включённом SELinux.
+
+---
+
+# Frontend
+
+Зона frontend-разработчика:
+
+```text
+frontend/
+```
+
+Frontend должен работать **только через REST API**.
+
+Он не должен:
+
+- знать структуру PostgreSQL;
+- напрямую читать файлы ML;
+- содержать SQL;
+- дублировать backend-бизнес-логику.
+
+## API-клиенты
+
+Все обращения к backend следует размещать в:
+
+```text
+frontend/src/api/
+```
+
+Например:
+
+```text
+frontend/src/api/dashboard.ts
+frontend/src/api/sensors.ts
+frontend/src/api/ml.ts
+```
+
+Компоненты React не должны содержать повторяющийся `fetch()` по всему проекту.
+
+## Компоненты
+
+Переиспользуемый UI следует размещать в:
+
+```text
+frontend/src/components/
+```
+
+Примеры:
+
+```text
+ImportPanel.tsx
+PredictionButton.tsx
+SensorDetails.tsx
+```
+
+## Конфигурация API
+
+Используется:
+
+```text
+frontend/src/config.ts
+```
+
+URL backend берётся из:
+
+```env
+VITE_API_URL=http://127.0.0.1:8000
+```
+
+Не хардкодить API URL в компонентах.
+
+## Проверка frontend
+
+```bash
+cd frontend
+npm run build
+```
+
+Pull Request не должен мержиться, если TypeScript/Vite build не проходит.
+
+---
+
+# Backend
+
+Зона backend-разработчика:
+
+```text
+backend/
+```
+
+Backend разделён на слои.
+
+## API layer
+
+```text
+backend/app/api/
+```
+
+Здесь находятся HTTP endpoints.
+
+Задачи API layer:
+
+- принять HTTP-запрос;
+- проверить параметры через FastAPI/Pydantic;
+- вызвать service layer;
+- вернуть HTTP-ответ;
+- преобразовать доменные ошибки в HTTP-коды.
+
+В API не следует писать SQL или сложную бизнес-логику.
+
+Пример правильной цепочки:
+
+```text
+GET /api/ml/predict/56682
+        ↓
+api/ml.py
+        ↓
+PredictionService
+        ↓
+SensorRepository + MLService
+```
+
+## Service layer
+
+```text
+backend/app/services/
+```
+
+Здесь находится бизнес-логика.
+
+Например:
+
+```text
+SensorService
+PredictionService
+DashboardService
+HealthService
+ImportService
+```
+
+Если логика не относится непосредственно к HTTP, она должна находиться здесь или в отдельном доменном модуле.
+
+## Schemas
+
+```text
+backend/app/schemas/
+```
+
+Pydantic-схемы определяют контракт REST API.
+
+Изменение schema может сломать frontend, поэтому такие изменения необходимо согласовывать с frontend-разработчиком.
+
+## Dependencies
+
+```text
+backend/app/core/dependencies.py
+```
+
+Это центральная точка подключения реализаций.
+
+Сейчас здесь выбираются:
+
+- `MLService`;
+- `SensorRepository`.
+
+При переходе с dummy-реализации на реальную желательно менять именно dependency wiring, а не переписывать API.
+
+---
+
+# ML
+
+Основная зона ML-разработчиков:
+
+```text
+ml/
+```
+
+Подробная ML-инструкция:
+
+```text
+ml/README.md
+```
+
+## Важное различие
+
+В проекте существуют две директории с `ml` в названии, и у них разные задачи.
+
+### `ml/`
+
+Рабочая зона ML-команды:
+
+```text
+ml/src/
+ml/notebooks/
+ml/artifacts/
+```
+
+Здесь выполняются:
+
+- анализ данных;
+- feature engineering;
+- preprocessing;
+- обучение;
+- валидация;
+- эксперименты;
+- подготовка артефакта модели.
+
+### `backend/app/ml/`
+
+Интеграционный слой backend ↔ ML.
+
+Содержит контракт:
+
+```text
+backend/app/ml/service.py
+```
+
+и текущую тестовую реализацию:
+
+```text
+backend/app/ml/dummy.py
+```
+
+ML-разработчик не должен переносить весь training pipeline внутрь FastAPI endpoint-а.
+
+## MLService
+
+Текущий интерфейс ожидает:
+
+```python
+class MLService:
+    def health(self) -> bool:
+        ...
+
+    def train(self) -> dict:
+        ...
+
+    def predict(self, sensor_id: int) -> dict:
+        ...
+```
+
+### `predict()`
+
+Ожидаемый результат:
+
+```json
+{
+  "sensor_id": 56682,
+  "probability": 0.42,
+  "horizon_hours": 24,
+  "model_version": "model-v1"
+}
+```
+
+Ограничения API-контракта:
+
+```text
+0.0 <= probability <= 1.0
+horizon_hours >= 24
+```
+
+## Подключение реальной модели
+
+Рекомендуемый путь:
+
+```text
+backend/app/ml/real.py
+```
+
+с реализацией `MLService`.
+
+После этого dependency в:
+
+```text
+backend/app/core/dependencies.py
+```
+
+переключается с `DummyMLService` на реальную реализацию.
+
+Если модель хранится в `ml/artifacts`, необходимо отдельно обеспечить backend доступ к артефакту через Docker volume, копирование в image или отдельный model-service. Не следует делать скрытую зависимость от локального пути разработчика.
+
+---
+
+# База данных
+
+Backend уже подключён к PostgreSQL через SQLAlchemy.
+
+Подключение:
+
+```text
+backend/app/db/database.py
+```
+
+Переменная:
+
+```env
+DATABASE_URL=postgresql+psycopg://astra:astra@localhost:5432/astra
+```
+
+В Docker backend использует имя сервиса PostgreSQL:
+
+```text
+postgres
+```
+
+а не `localhost`.
+
+## Repository pattern
+
+Backend не должен обращаться к SQL напрямую из API.
+
+Контракт датчиков:
+
+```text
+backend/app/repositories/sensor_repository.py
+```
+
+Текущая реализация:
+
+```text
+backend/app/repositories/dummy_sensor_repository.py
+```
+
+DB-разработчику рекомендуется реализовать, например:
+
+```text
+backend/app/repositories/postgres_sensor_repository.py
+```
+
+с тем же интерфейсом:
+
+```python
+def get_all(self) -> list[dict]:
+    ...
+
+
+def get_by_id(self, sensor_id: int) -> dict | None:
+    ...
+```
+
+После реализации необходимо переключить dependency в:
+
+```text
+backend/app/core/dependencies.py
+```
+
+API и service layer при этом менять не должны.
+
+---
+
+# REST API
+
+Интерактивная документация FastAPI:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## System
+
+### `GET /api/health`
+
+Проверка состояния ASTRA.
+
+Пример:
+
+```json
+{
+  "status": "ok",
+  "application": "ASTRA",
+  "database": "connected",
+  "ml": "available"
+}
+```
+
+---
+
+## Dashboard
+
+### `GET /api/dashboard`
+
+Возвращает агрегированные данные для диспетчерской панели:
+
+```json
+{
+  "system": {
+    "status": "ok",
+    "application": "ASTRA",
+    "database": "connected",
+    "ml": "available"
+  },
+  "summary": {
+    "total_sensors": 3,
+    "ok": 1,
+    "warning": 1,
+    "critical": 1,
+    "max_risk": 0.91
+  },
+  "sensors": []
+}
+```
+
+Frontend рекомендуется строить прежде всего вокруг этого endpoint-а для основной панели.
+
+---
+
+## Sensors
+
+### `GET /api/sensors`
+
+Список датчиков.
+
+### `GET /api/sensors/{sensor_id}`
+
+Один датчик.
+
+Если датчик не существует:
+
+```text
+404 Sensor not found
+```
+
+Пример датчика:
+
+```json
+{
+  "id": 56682,
+  "name": "МК-1.1.1.1.1.1",
+  "type": "temperature",
+  "value": 25.0,
+  "status": "OK",
+  "risk": 0.12
+}
+```
+
+---
+
+## ML
+
+### `GET /api/ml/health`
+
+Проверяет доступность ML-компонента.
+
+### `POST /api/ml/train`
+
+Текущий контракт запуска обучения.
+
+### `GET /api/ml/predict/{sensor_id}`
+
+Возвращает ML-прогноз для существующего датчика.
+
+Для неизвестного датчика возвращается `404`.
+
+---
+
+## Import
+
+### `POST /api/import`
+
+Принимает файл данных.
+
+Поддерживаемые расширения:
+
+```text
+.csv
+.xls
+.xlsx
+```
+
+На текущем этапе endpoint проверяет формат и принимает файл, но полноценный parsing + запись в PostgreSQL ещё не реализованы.
+
+---
+
+# Импорт данных
+
+Код:
+
+```text
+backend/app/services/import_service.py
+```
+
+Frontend:
+
+```text
+frontend/src/components/ImportPanel.tsx
+```
+
+Сейчас поток выглядит так:
+
+```text
+пользователь выбирает файл
+        ↓
+frontend
+        ↓
+POST /api/import
+        ↓
+FastAPI UploadFile
+        ↓
+ImportService
+        ↓
+проверка расширения
+        ↓
+успешный ответ
+```
+
+Будущая реализация должна добавить:
+
+```text
+чтение CSV/XLS/XLSX
+        ↓
+валидация колонок
+        ↓
+нормализация данных
+        ↓
+запись в PostgreSQL
+        ↓
+отчёт об ошибках / количестве записей
+```
+
+Эту логику следует добавлять в service/repository layer, а не в React.
+
+---
+
+# Тесты
+
+Backend tests:
+
+```text
+backend/tests/
+```
+
+Запуск:
+
+```bash
+cd backend
+source .venv/bin/activate
+pytest -v
+```
+
+Или без активации окружения:
+
+```bash
+backend/.venv/bin/python -m pytest -v
+```
+
+Важно запускать pytest из `backend/`, если используется активированное virtualenv.
+
+## PostgreSQL и health test
+
+Тест `/api/health` проверяет реальное соединение с PostgreSQL.
+
+Поэтому локально PostgreSQL должен быть запущен:
+
+```bash
+cd ..
+docker-compose up -d postgres
+```
+
+После чего:
+
+```bash
+cd backend
+pytest -v
+```
+
+## Frontend check
+
+```bash
+cd frontend
+npm run build
+```
+
+Это запускает TypeScript compiler и Vite build.
+
+---
+
+# GitHub Actions
+
+Workflow находится в:
+
+```text
+.github/workflows/backend-tests.yml
+```
+
+При push и Pull Request запускаются CI jobs.
+
+Backend job:
+
+```text
+PostgreSQL service
+      ↓
+Python 3.13
+      ↓
+pip install
+      ↓
+pytest -v
+```
+
+Frontend job:
+
+```text
+Node.js 22
+      ↓
+npm ci
+      ↓
+npm run build
+```
+
+Если branch protection настроен, merge в `main` должен быть разрешён только при зелёных checks:
+
+```text
+pytest           ✅
+frontend-build   ✅
+```
+
+---
+
+# Git workflow
+
+Не работать напрямую в `main`.
+
+Перед началом задачи:
+
+```bash
+git checkout main
+git pull
+git checkout -b feature/название-задачи
+```
+
+Примеры веток:
+
+```text
+feature/ml-model
+feature/postgres-repository
+feature/sensor-history
+feature/dashboard-ui
+fix/import-validation
+```
+
+После работы:
+
+```bash
+git status
+git add .
+git commit -m "Describe implemented change"
+git push -u origin feature/название-задачи
+```
+
+Затем создать Pull Request:
+
+```text
+feature/... → main
+```
+
+Перед merge должны пройти CI checks.
+
+После merge:
+
+```bash
+git checkout main
+git pull
+```
+
+---
+
+# Правила разработки
+
+## Общие
+
+Перед началом работы всегда обновлять `main`.
+
+Не коммитить:
+
+```text
+.env
+.venv/
+node_modules/
+dist/
+секреты
+токены
+пароли
+большие ML-модели
+большие датасеты
+```
+
+## Frontend-разработчик
+
+Основная зона:
+
+```text
+frontend/
+```
+
+Обычно не требуется менять:
+
+```text
+backend/app/repositories/
+backend/app/db/
+backend/app/ml/
+```
+
+При необходимости изменения API сначала согласовать контракт.
+
+## Backend-разработчик
+
+Основная зона:
+
+```text
+backend/app/api/
+backend/app/services/
+backend/app/repositories/
+backend/app/db/
+backend/app/schemas/
+backend/app/core/
+```
+
+Изменение Pydantic response schema считать изменением API-контракта.
+
+## ML-разработчик
+
+Основная зона:
+
+```text
+ml/
+```
+
+Интеграционная зона:
+
+```text
+backend/app/ml/
+```
+
+ML-разработчик не должен переписывать frontend или структуру REST API без согласования.
+
+## DB-разработчик
+
+Основная зона:
+
+```text
+backend/app/db/
+backend/app/repositories/
+```
+
+Нельзя заставлять API напрямую выполнять SQL.
+
+---
+
+# Переменные окружения
+
+Локальные `.env` не должны попадать в Git.
+
+В Git хранятся только `.env.example`.
+
+## Backend
+
+```text
+backend/.env
+```
+
+```env
+DATABASE_URL=postgresql+psycopg://astra:astra@localhost:5432/astra
+```
+
+## Frontend
+
+```text
+frontend/.env
+```
+
+```env
+VITE_API_URL=http://127.0.0.1:8000
+```
+
+При добавлении новой обязательной переменной окружения необходимо обновить соответствующий `.env.example`.
+
+---
+
+# Что уже реализовано
+
+Работает:
+
+- FastAPI backend;
+- React + TypeScript frontend;
+- PostgreSQL в Docker;
+- REST API;
+- CORS;
+- health endpoint;
+- dashboard endpoint;
+- список датчиков;
+- получение датчика по ID;
+- SensorRepository abstraction;
+- service layer;
+- MLService abstraction;
+- dummy ML implementation;
+- ML health;
+- ML train contract;
+- ML prediction contract;
+- проверка существования датчика перед прогнозом;
+- PredictionService;
+- DashboardService;
+- импорт CSV/XLS/XLSX на уровне приёма файла;
+- Pydantic response schemas;
+- backend tests;
+- frontend build validation;
+- GitHub Actions CI;
+- Docker development environment;
+- Uvicorn reload;
+- Vite hot reload;
+- единый `astra.sh` launcher;
+- desktop launcher через `launch-astra.sh`;
+- frontend dashboard;
+- summary по рискам;
+- status/risk indication;
+- фильтрация датчиков;
+- поиск датчиков;
+- сортировка датчиков;
+- детальная карточка датчика;
+- вызов ML-прогноза из UI.
+
+---
+
+# Что пока является заглушкой
+
+Следующие компоненты ещё не являются production implementation.
+
+## Датчики
+
+Сейчас используется:
+
+```text
+DummySensorRepository
+```
+
+Данные находятся в Python-коде.
+
+Нужно заменить на PostgreSQL implementation.
+
+## ML
+
+Сейчас используется:
+
+```text
+DummyMLService
+```
+
+Например, `probability = 0.42` — тестовое значение, а не результат настоящей модели.
+
+## Импорт
+
+CSV/XLS/XLSX принимаются, но содержимое ещё не разбирается и не сохраняется в PostgreSQL.
+
+## История измерений
+
+API временных рядов и история датчиков ещё должны быть реализованы.
+
+## Авторизация
+
+Пользователи, роли и доступ диспетчера пока не реализованы.
+
+## Production deployment
+
+Текущий frontend Dockerfile запускает Vite development server. Для production deployment потребуется отдельная production-сборка, например через Nginx или другой web server.
+
+---
+
+# Типовые сценарии разработки
+
+## Я меняю только Python backend
+
+```bash
+cd ~/Projects/ASTRA
+./astra.sh
+```
+
+После этого редактировать `.py` и сохранять.
+
+Uvicorn reload подхватит изменения автоматически.
+
+Проверка:
+
+```bash
+cd backend
+source .venv/bin/activate
+pytest -v
+```
+
+## Я меняю только React/CSS
+
+Запустить ASTRA один раз:
+
+```bash
+./astra.sh
+```
+
+После этого редактировать файлы в:
+
+```text
+frontend/src/
+```
+
+Vite hot reload обновит браузер автоматически.
+
+Перед commit:
+
+```bash
+cd frontend
+npm run build
+```
+
+## Я изменил Python dependency
+
+После изменения:
+
+```text
+backend/requirements.txt
+```
+
+нужна пересборка:
+
+```bash
+./astra.sh rebuild
+```
+
+## Я изменил npm dependency
+
+После изменения `package.json` или lock-файла:
+
+```bash
+cd frontend
+npm install
+cd ..
+./astra.sh rebuild
+```
+
+## Я хочу посмотреть Swagger
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Я хочу остановить всё
+
+```bash
+./astra.sh stop
+```
+
+---
+
+# Полезные команды
+
+Состояние Docker:
+
+```bash
+docker-compose ps
+```
+
+Все контейнеры, включая остановленные:
+
+```bash
+docker-compose ps -a
+```
+
+Backend logs:
+
+```bash
+docker-compose logs -f backend
+```
+
+Frontend logs:
+
+```bash
+docker-compose logs -f frontend
+```
+
+PostgreSQL logs:
+
+```bash
+docker-compose logs -f postgres
+```
+
+Backend health:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
+Dashboard:
+
+```bash
+curl http://127.0.0.1:8000/api/dashboard
+```
+
+Sensors:
+
+```bash
+curl http://127.0.0.1:8000/api/sensors
+```
+
+Один датчик:
+
+```bash
+curl http://127.0.0.1:8000/api/sensors/56682
+```
+
+ML prediction:
+
+```bash
+curl http://127.0.0.1:8000/api/ml/predict/56682
+```
+
+Git status:
+
+```bash
+git status
+```
+
+Последние commits:
+
+```bash
+git log --oneline --max-count=10
+```
+
+---
+
+# Разделение ответственности команды
+
+```text
+┌───────────────────────┬──────────────────────────────────────┐
+│ Роль                  │ Основная зона                        │
+├───────────────────────┼──────────────────────────────────────┤
+│ Frontend              │ frontend/                            │
+│ Backend               │ backend/app/                         │
+│ ML                    │ ml/ + backend/app/ml integration     │
+│ Database              │ backend/app/db + repositories        │
+│ Infrastructure / CI   │ compose.yaml, Dockerfiles, .github/  │
+└───────────────────────┴──────────────────────────────────────┘
+```
+
+Главное правило: разработчик может менять другую зону, если это необходимо, но изменение публичного контракта должно быть согласовано с разработчиком, который от этого контракта зависит.
+
+---
+
+# Definition of Done для Pull Request
+
+Перед созданием PR желательно выполнить:
+
+```bash
+cd backend
+source .venv/bin/activate
+pytest -v
+
+cd ../frontend
+npm run build
+```
+
+PR считается технически готовым, если:
+
+- задача реализована;
+- тесты проходят;
+- frontend собирается;
+- `.env` и секреты не попали в commit;
+- новый публичный API описан;
+- при изменении environment variables обновлён `.env.example`;
+- при изменении архитектуры обновлён README;
+- GitHub Actions зелёный.
+
+---
+
+# Краткая памятка новому разработчику
+
+```text
+1. Прочитай README.
+2. Клонируй репозиторий.
+3. Создай backend/.venv и установи requirements.
+4. Выполни npm ci в frontend.
+5. Создай .env из .env.example.
+6. Первый раз запусти ./astra.sh rebuild.
+7. Создай свою feature-ветку.
+8. Работай только через Pull Request.
+9. Не пушь секреты и большие данные.
+10. Перед PR запусти pytest и npm run build.
+```
+
+---
+
+# ASTRA
+
+Цель репозитория — позволить нескольким разработчикам независимо развивать frontend, backend, PostgreSQL и ML, сохраняя стабильный REST-контракт между компонентами.
+
+Если для новой задачи приходится полностью переписывать соседний слой, сначала проверь, нельзя ли решить её через существующий interface/service/repository contract.
