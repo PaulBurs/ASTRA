@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 
+from app.ml.contracts import MLPredictionInput
+
 
 class MLService(ABC):
-    """Интерфейс для подключения ML-модели к ASTRA."""
+    """Интерфейс подключения ML-модели к ASTRA."""
 
     @abstractmethod
     def health(self) -> bool:
@@ -15,6 +17,9 @@ class MLService(ABC):
         pass
 
     @abstractmethod
-    def predict(self, sensor_id: int) -> dict:
-        """Возвращает прогноз риска для датчика."""
+    def predict(
+        self,
+        prediction_input: MLPredictionInput,
+    ) -> dict:
+        """Строит прогноз по подготовленной истории датчика."""
         pass
