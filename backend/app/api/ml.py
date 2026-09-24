@@ -6,6 +6,7 @@ from app.core.dependencies import (
     get_sensor_repository,
 )
 from app.ml.service import MLService
+from app.repositories.ml_data_repository import MLDataRepository
 from app.repositories.sensor_repository import SensorRepository
 from app.schemas.ml import (
     MLHealthResponse,
@@ -17,9 +18,6 @@ from app.services.prediction_service import (
     SensorDataNotFoundError,
     SensorNotFoundError,
 )
-from app.repositories.ml_data_repository import (
-    MLDataRepository,
-)
 
 
 router = APIRouter()
@@ -30,7 +28,11 @@ def ml_health(
     ml_service: MLService = Depends(get_ml_service),
 ):
     return {
-        "status": "available" if ml_service.health() else "unavailable"
+        "status": (
+            "available"
+            if ml_service.health()
+            else "unavailable"
+        )
     }
 
 
@@ -39,7 +41,7 @@ def train_model(
     ml_service: MLService = Depends(get_ml_service),
 ):
     return ml_service.train()
-    
+
 
 @router.get(
     "/predict/{sensor_id}",
@@ -77,12 +79,4 @@ def predict(
             status_code=404,
             detail="Sensor data not found",
         )
-    
-    
-def test_ml_prediction_for_unknown_sensor():
-    response = client.get("/api/ml/predict/999999")
 
-    assert response.status_code == 404
-    assert response.json() == {
-        "detail": "Sensor not found"
-    }

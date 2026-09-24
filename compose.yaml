@@ -36,7 +36,6 @@ services:
 
     volumes:
       - ./ml:/app/ml:Z
-      - ${SOURCE_DATA_PATH:-./data/demo}:/data/source:ro,Z
 
     command:
       [
@@ -91,7 +90,6 @@ services:
     volumes:
       - ./backend/app:/app/app:Z
       - ./backend/main.py:/app/main.py:Z
-      - source_cache:/data/cache
 
     command:
       [
@@ -142,4 +140,3 @@ services:
 
 volumes:
   postgres_data:
-  source_cache:

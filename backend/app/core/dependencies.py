@@ -18,6 +18,9 @@ from app.repositories.ml_data_repository import (
 from app.repositories.postgres_ml_data_repository import (
     PostgresMLDataRepository,
 )
+from app.repositories.file_ml_data_repository import (
+    FileMLDataRepository,
+)
 from app.repositories.postgres_sensor_catalog_repository import (
     PostgresSensorCatalogRepository,
 )
@@ -30,7 +33,19 @@ from app.repositories.sensor_catalog_repository import (
 from app.repositories.sensor_repository import (
     SensorRepository,
 )
+from app.repositories.file_sensor_repository import (
+    FileSensorRepository,
+)
+from app.repositories.file_sensor_catalog_repository import (
+    FileSensorCatalogRepository,
+)
+from app.repositories.agent_sensor_repository import (
+    AgentSensorRepository,
+)
 from app.ml.http_service import HTTPMLService
+from app.repositories.agent_ml_data_repository import (
+    AgentMLDataRepository,
+)
 
 
 def create_sensor_repository() -> SensorRepository:
@@ -38,6 +53,12 @@ def create_sensor_repository() -> SensorRepository:
         "DATA_SOURCE",
         "dummy",
     ).lower()
+
+    if source == "agent":
+        return AgentSensorRepository()
+
+    if source == "file":
+        return FileSensorRepository()
 
     if source == "postgres":
         return PostgresSensorRepository()
@@ -51,18 +72,26 @@ def create_ml_data_repository() -> MLDataRepository:
         "dummy",
     ).lower()
 
+    if source == "agent":
+        return AgentMLDataRepository()
+
+    if source == "file":
+        return FileMLDataRepository()
+
     if source == "postgres":
         return PostgresMLDataRepository()
 
     return DummyMLDataRepository()
 
 
-def create_sensor_catalog_repository(
-) -> SensorCatalogRepository:
+def create_sensor_catalog_repository() -> SensorCatalogRepository:
     source = os.getenv(
         "ML_DATA_SOURCE",
         "dummy",
     ).lower()
+
+    if source == "file":
+        return FileSensorCatalogRepository()
 
     if source == "postgres":
         return PostgresSensorCatalogRepository()
