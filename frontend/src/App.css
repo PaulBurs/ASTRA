@@ -80,7 +80,11 @@ h2 {
 
 .sensor-card {
   display: grid;
-  grid-template-columns: 2fr 0.8fr 1fr auto;
+  grid-template-columns:
+    minmax(220px, 2fr)
+    minmax(120px, 0.8fr)
+    minmax(150px, 1fr)
+    auto;
   gap: 20px;
   align-items: center;
 
@@ -93,6 +97,97 @@ h2 {
 
 .sensor-card p {
   margin: 5px 0 0;
+}
+
+.sensor-card-main {
+  min-width: 0;
+}
+
+.sensor-card-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sensor-card-title strong {
+  font-size: 17px;
+}
+
+.sensor-id {
+  color: #7a818a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sensor-system {
+  color: #505861;
+  font-size: 14px;
+}
+
+.sensor-event-time {
+  color: #7a818a;
+  font-size: 12px;
+}
+
+.sensor-card-value {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sensor-card-value > span {
+  color: #7a818a;
+  font-size: 12px;
+}
+
+.sensor-card-value strong {
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.sensor-card-value small {
+  color: #7a818a;
+  font-size: 11px;
+}
+
+.sensor-card-risk {
+  min-width: 130px;
+}
+
+.sensor-risk-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+
+  margin-top: 10px;
+
+  font-size: 13px;
+}
+
+.sensor-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sensor-empty {
+  padding: 32px;
+
+  background: white;
+  border: 1px dashed #c7ccd1;
+  border-radius: 10px;
+
+  text-align: center;
+}
+
+.sensor-empty strong {
+  font-size: 17px;
+}
+
+.sensor-empty p {
+  margin: 8px 0 0;
+
+  color: #606770;
 }
 
 .status {
@@ -123,71 +218,6 @@ h2 {
   border-radius: 8px;
 
   color: #a40000;
-}
-
-/* DATA IMPORT */
-
-.import-panel {
-  margin-top: 48px;
-  padding: 24px;
-
-  background: white;
-  border: 1px solid #e1e4e8;
-  border-radius: 10px;
-}
-
-.import-panel h2 {
-  margin-top: 0;
-}
-
-.import-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-
-  margin-top: 24px;
-}
-
-.import-controls button {
-  padding: 10px 18px;
-
-  border: 0;
-  border-radius: 6px;
-
-  background: #20242a;
-  color: white;
-
-  cursor: pointer;
-}
-
-.import-controls button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.selected-file {
-  margin-top: 18px;
-}
-
-.import-result {
-  margin-top: 20px;
-  padding: 16px;
-
-  border-radius: 8px;
-}
-
-.import-result p {
-  margin: 6px 0 0;
-}
-
-.import-result.success {
-  background: #edf8ed;
-  border: 1px solid #b7dfb7;
-}
-
-.import-result.failure {
-  background: #ffeaea;
-  border: 1px solid #ffb8b8;
 }
 
 /* DASHBOARD SUMMARY */
