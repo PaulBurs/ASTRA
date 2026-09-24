@@ -1,12 +1,11 @@
-from app.api.dashboard import router as dashboard_router
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.dashboard import router as dashboard_router
+from app.api.data_source import router as data_source_router
 from app.api.health import router as health_router
 from app.api.ml import router as ml_router
 from app.api.sensors import router as sensors_router
-from app.api.import_data import router as import_router
 
 
 app = FastAPI(
@@ -19,43 +18,44 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-],
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# health.py already declares @router.get("/health"),
+# therefore only the common /api prefix belongs here.
 app.include_router(
     health_router,
     prefix="/api",
-    tags=["System"],
-)
-
-app.include_router(
-    ml_router,
-    prefix="/api/ml",
-    tags=["Machine Learning"],
+    tags=["health"],
 )
 
 app.include_router(
     sensors_router,
     prefix="/api/sensors",
-    tags=["Sensors"],
-)
-
-app.include_router(
-    import_router,
-    prefix="/api/import",
-    tags=["Data Import"],
+    tags=["sensors"],
 )
 
 app.include_router(
     dashboard_router,
     prefix="/api/dashboard",
-    tags=["Dashboard"],
+    tags=["dashboard"],
+)
+
+app.include_router(
+    ml_router,
+    prefix="/api/ml",
+    tags=["ml"],
+)
+
+# data_source.py already owns prefix="/api/data-source".
+app.include_router(
+    data_source_router,
 )
 
 
@@ -65,3 +65,4 @@ def root():
         "application": "ASTRA",
         "status": "running",
     }
+

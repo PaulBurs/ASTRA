@@ -16,6 +16,9 @@ ml/.venv/
 .coverage
 htmlcov/
 
+.astra-runtime/
+*~
+
 
 # =========================
 # Environment / secrets

@@ -1,6 +1,10 @@
 import type { Sensor } from "../api/sensors"
 
 import { PredictionButton } from "./PredictionButton"
+import {
+  formatOccurredAt,
+  formatSensorValue,
+} from "../utils/sensorFormat"
 
 
 interface SensorDetailsProps {
@@ -37,11 +41,32 @@ export function SensorDetails({
           <span>Тип</span>
           <strong>{sensor.type}</strong>
         </div>
+        
+        <div>
+		  <span>Инженерная система</span>
+		  <strong>
+			{sensor.engineering_system ?? "Не указана"}
+		  </strong>
+		</div>
+
+		<div>
+		  <span>Объект</span>
+		  <strong>
+			{sensor.object_id ?? "Не указан"}
+		  </strong>
+		</div>
 
         <div>
-          <span>Текущее значение</span>
-          <strong>{sensor.value}</strong>
-        </div>
+		  <span>Текущее значение</span>
+		  <strong>{formatSensorValue(sensor)}</strong>
+		</div>
+		
+		<div>
+		  <span>Последнее событие</span>
+		  <strong>
+			{formatOccurredAt(sensor.occurred_at)}
+		  </strong>
+		</div>
 
         <div>
           <span>Статус</span>
