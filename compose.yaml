@@ -36,6 +36,7 @@ services:
 
     volumes:
       - ./ml:/app/ml:Z
+      - ${SOURCE_DATA_PATH:-./data/demo}:/data/source:ro,Z
 
     command:
       [
@@ -70,12 +71,17 @@ services:
   backend:
     build:
       context: ./backend
+      
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     environment:
       DATABASE_URL: postgresql+psycopg://astra:astra@postgres:5432/astra
+      
+      SOURCE_AGENT_URL: http://host.docker.internal:9100
 
-      DATA_SOURCE: postgres
-      ML_DATA_SOURCE: postgres
+      DATA_SOURCE: ${DATA_SOURCE:-postgres}
+      ML_DATA_SOURCE: ${ML_DATA_SOURCE:-postgres}
 
       ML_SERVICE_URL: http://ml:9000
 
@@ -85,6 +91,7 @@ services:
     volumes:
       - ./backend/app:/app/app:Z
       - ./backend/main.py:/app/main.py:Z
+      - source_cache:/data/cache
 
     command:
       [
@@ -93,8 +100,7 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "8000",
-        "--reload"
+        "8000"
       ]
 
     depends_on:
@@ -110,12 +116,11 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=2)"
         ]
       interval: 5s
       timeout: 5s
       retries: 20
-
 
   frontend:
     build:
@@ -137,3 +142,4 @@ services:
 
 volumes:
   postgres_data:
+  source_cache:
