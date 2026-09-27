@@ -1,6 +1,7 @@
+import { ReportForm } from "./ReportForm"
 import { useState, type FormEvent } from "react"
 import type { DemoCheck, DemoWarning } from "../state/models"
-import { isOpenWarning, outcomes, type DemoAction, type Workspace } from "../state/workspace"
+import { isOpenWarning, type DemoAction, type Workspace } from "../state/workspace"
 import { navigate } from "../state/navigation"
 import type { Notice } from "./WorkspaceFeedback"
 
@@ -40,7 +41,7 @@ export function WarningActions({ warning, workspace, act, busy, notify }: Common
   const [error, setError] = useState("")
   const hasActive = workspace.data.checks.some(c => c.warningId === warning.id && c.status !== "Завершена")
   if (!isOpenWarning(warning.status)) return <p>Решение: {warning.status}.</p>
-  return <section className="demo-actions"><h3>Решение по событию</h3>{hasActive ? <p>Проверка уже назначена — продолжите работу в её карточке.</p> : <>
+  return <section className="demo-actions"><h3>Решение по событию</h3>{hasActive ? <p>Проверка назначена. Статус выполнения доступен в её карточке.</p> : <>
     {!form && <div className="demo-action-buttons"><button disabled={busy} className="primary" onClick={() => setForm("assign")}>Назначить проверку</button><button disabled={busy} onClick={() => setForm("falseAlarm")}>Ложная тревога</button></div>}
     {form === "assign" && <AssignForm warning={warning} workspace={workspace} act={act} busy={busy} notify={notify} onCancel={() => setForm(null)} />}
     {form === "falseAlarm" && <form className="demo-form" onSubmit={async e => { e.preventDefault(); const f = new FormData(e.currentTarget); try { await act({ type: "falseAlarm", warningId: warning.id, reason: text(f, "reason") }); setForm(null); notify("Решение сохранено.") } catch (reason) { setError((reason as Error).message) } }}>
@@ -48,27 +49,27 @@ export function WarningActions({ warning, workspace, act, busy, notify }: Common
     </form>}
   </>}</section>
 }
-export function CheckActions({ check, act, busy, notify, assignees }: Common & { check: DemoCheck; assignees: string[] }) {
-  const [form, setForm] = useState<"work" | "report" | null>(null)
+export function CheckActions({ check, act, busy, notify, userId }: Common & { check: DemoCheck; userId: string }) {
+  const [showReport, setShowReport] = useState(false)
   const [error, setError] = useState("")
-  async function run(action: DemoAction) {
+  async function run(action: DemoAction): Promise<boolean> {
     setError("")
-    try { await act(action); setForm(null); notify(action.type === "result" ? "Отчёт сохранён. Проверка перемещена в архив." : "Проверка обновлена."); if (action.type === "result") navigate("archive", check.id) }
-    catch (reason) { setError((reason as Error).message) }
+    try {
+      await act(action)
+      setShowReport(false)
+      if (action.type === "result") {
+        const complete = action.outcome !== "unresolved"
+        notify(complete ? "Отчёт сохранён. Проверка автоматически перемещена в архив." : "Результат сохранён. Проверка остаётся в работе до устранения неисправности.")
+        if (complete) navigate("archive", check.id)
+      } else notify("Проверка начата.")
+      return true
+    } catch (reason) { setError((reason as Error).message); return false }
   }
   if (check.status === "Завершена") return null
-  return <section className="demo-actions"><h3>Выполнение</h3><p className="demo-note">Демодействия исполнителя: {check.assignee}</p>
+  return <section className="demo-actions"><h3>Выполнение проверки</h3><p className="demo-note">Исполнитель: {check.assignee}</p>
     {check.status === "Новая" ? <button disabled={busy} className="primary" onClick={() => void run({ type: "advance", checkId: check.id })}>Начать проверку</button> : <>
-      <div className="demo-action-buttons"><button disabled={busy} onClick={() => setForm("work")}>Запланировать работы</button><button disabled={busy} className="primary" onClick={() => setForm("report")}>Завершить проверку</button></div>
-      {form && <form key={form} className="demo-form" onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); try { void run(form === "work" ? { type: "planWork", checkId: check.id, workDescription: text(f, "work"), assignee: text(f, "assignee"), deadline: dateValue(f, "deadline") } : { type: "result", checkId: check.id, outcome: text(f, "outcome") as keyof typeof outcomes, result: text(f, "result"), workDescription: text(f, "work") }) } catch (reason) { setError((reason as Error).message) } }}>
-        <h3>{form === "work" ? "Необходимые работы" : "Итоговый отчёт"}</h3><fieldset disabled={busy}>
-        {form === "work" ? <><label>Исполнитель<select name="assignee" defaultValue={check.assignee}>{assignees.map(name => <option key={name}>{name}</option>)}</select></label><label>Новый срок завершения<input required name="deadline" type="datetime-local" defaultValue={localDate(3)} /></label></> : <>
-          <label>Результат<select name="outcome">{Object.entries(outcomes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          <label>Отчёт об обследовании<textarea name="result" required maxLength={4000} /></label>
-        </>}
-        <label>{form === "work" ? "Что необходимо выполнить" : "Выполненные работы или причина, почему не требовались"}<textarea name="work" required maxLength={4000} defaultValue={check.workDescription ?? ""} /></label>
-        <div className="demo-action-buttons"><button className="primary" type="submit">{busy ? "Сохранение…" : form === "work" ? "Сохранить план" : "Сохранить отчёт и завершить"}</button><button type="button" onClick={() => setForm(null)}>Отмена</button></div></fieldset>
-      </form>}
+      <button disabled={busy} className="primary" onClick={() => setShowReport(true)}>Заполнить отчёт</button>
+      {showReport && <ReportForm check={check} userId={userId} busy={busy} onSubmit={run} onCancel={() => setShowReport(false)}/>}
     </>}{error && <p className="demo-form-error" role="alert">{error}</p>}
   </section>
 }

@@ -21,6 +21,7 @@ export interface DemoCheck {
   warningId?: number
   title: string
   assignee: string
+  assigneeId?: string
   deadline: string
   status: "Новая" | "В работе" | "Завершена"
   plannedAt?: string

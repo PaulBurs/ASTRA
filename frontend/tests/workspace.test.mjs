@@ -34,8 +34,10 @@ test('work plan changes executor and deadline without adding a status',()=>{
 test('cannot complete without report, work description, valid result, or start',()=>{
  for(const patch of [{result:' '},{workDescription:''},{outcome:'invalid'},{checkId:208}]) assert.throws(()=>applyAction(fresh(),{...report,...patch},now))
  const w=applyAction(fresh(),{...report,outcome:'unresolved'},now)
- assert.ok(isArchived(w.data.checks.find(c=>c.id===207)));assert.equal(w.data.warnings.find(v=>v.id===1037).status,'Подтверждено')
- assert.throws(()=>applyAction(w,report,now))
+ assert.ok(!isArchived(w.data.checks.find(c=>c.id===207)));assert.equal(w.data.warnings.find(v=>v.id===1037).status,'На проверке')
+ const completed=applyAction(w,{...report,outcome:'fixed'},now)
+ assert.ok(isArchived(completed.data.checks.find(c=>c.id===207)))
+ assert.throws(()=>applyAction(completed,report,now))
 })
 test('bad schedules, repeated assignment and repeat start are rejected',()=>{
  for(const patch of [{title:' '},{assignee:'unknown'},{deadline:'2020-01-01'},{plannedAt:'2031-01-01'},{plannedAt:'2020-01-01'},{plannedAt:'bad'}]) assert.throws(()=>applyAction(fresh(),{...assignment,...patch},now))
@@ -84,4 +86,14 @@ test('async repository commands return saved snapshots and reject stale clients'
  assert.equal(next.data.checks.find(c=>c.id===208).status,'В работе')
  await assert.rejects(repo.execute({type:'advance',checkId:208},initial.revision),/вкладке/)
  assert.deepEqual(await repo.load(),JSON.parse(JSON.stringify(next)))
+})
+
+test('existing unresolved archive records reopen once without losing report or history',async()=>{
+ const s=storage(),w=fresh(),c=w.data.checks.find(c=>c.id===207)
+ c.status='Завершена';c.outcome='unresolved';c.result='Старый отчёт';c.workDescription='Не устранено';c.completedAt=now.toISOString()
+ s.setItem(WORKSPACE_KEY,JSON.stringify(w))
+ const migrated=await loadWorkspace(s),next=migrated.data.checks.find(c=>c.id===207)
+ assert.equal(next.status,'В работе');assert.equal(next.result,'Старый отчёт');assert.equal(next.completedAt,undefined)
+ assert.equal(migrated.revision,w.revision+1)
+ const again=await loadWorkspace(s);assert.equal(again.history.length,migrated.history.length);assert.equal(again.revision,migrated.revision)
 })

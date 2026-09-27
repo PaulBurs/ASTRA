@@ -49,12 +49,6 @@ ml/notebooks/.ipynb_checkpoints/
 ml/artifacts/*
 !ml/artifacts/.gitkeep
 
-# модель djkh_model: выгрузка организаторов, срезы и тяжёлые файлы обучения
-ml/data/
-ml/*.parquet
-ml/out*/predictions_test.csv.gz
-ml/out*/risk_ranking.csv
-
 *.joblib
 *.pkl
 *.pickle
