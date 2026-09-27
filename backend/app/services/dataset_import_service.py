@@ -16,6 +16,7 @@ from astra_pipeline.csv_input import detect_role
 from astra_pipeline.registry import ensure_registry, get_dataset, schema_name, update_dataset
 
 logger = logging.getLogger(__name__)
+GIB = 1024**3
 
 
 class DatasetImportService:
@@ -28,6 +29,21 @@ class DatasetImportService:
     def directory(self, dataset_id):
         return self.root / UUID(str(dataset_id)).hex
 
+    def require_free_space(self, source_bytes: int, *, sources_uploaded: bool) -> None:
+        # CSV is compact. PostgreSQL tables, indexes, ML features and temporary
+        # tables need considerably more room while a dataset is being built.
+        factor = max(2.0, float(os.getenv("DATASET_STORAGE_EXPANSION_FACTOR", "10")))
+        reserve = int(os.getenv("DATASET_STORAGE_RESERVE_BYTES", str(2 * GIB)))
+        database_bytes = source_bytes * (factor - (1 if sources_uploaded else 0))
+        required = int(database_bytes) + reserve
+        free = shutil.disk_usage(self.root).free
+        if required > free:
+            raise HTTPException(
+                507,
+                "Недостаточно места для подготовки: требуется ориентировочно "
+                f"{required / GIB:.0f} ГБ, доступно {free / GIB:.0f} ГБ",
+            )
+
     def lock(self, dataset_id=None):
         directory = self.directory(dataset_id) if dataset_id else self.root
         directory.mkdir(parents=True, exist_ok=True)
@@ -36,7 +52,13 @@ class DatasetImportService:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             handle.close()
-            raise HTTPException(409, "Загрузка или подготовка данных уже выполняется") from None
+            detail = (
+                "Операция с этим набором уже выполняется"
+                if dataset_id else
+                "Сейчас подготавливается другой набор данных. Дождитесь завершения и "
+                "повторите запуск подготовки — загружать файлы заново не нужно"
+            )
+            raise HTTPException(409, detail) from None
         return handle
 
     def create(self, files):
@@ -46,8 +68,7 @@ class DatasetImportService:
         maximum = int(os.getenv("DATASET_MAX_UPLOAD_BYTES", str(64 * 1024**3)))
         if total > maximum:
             raise HTTPException(413, "Превышен допустимый суммарный размер файлов")
-        if total + 128 * 1024**2 > shutil.disk_usage(self.root).free:
-            raise HTTPException(507, "Недостаточно места для загрузки выбранных файлов")
+        self.require_free_space(total, sources_uploaded=False)
         dataset_id = uuid4()
         entries = [dict(name=file.name, size=file.size, uploaded=False, role=None) for file in files]
         with self.engine.begin() as conn:
@@ -136,6 +157,10 @@ class DatasetImportService:
                 raise HTTPException(422, "Выберите хотя бы один журнал событий")
             if roles.count("states") > 1:
                 raise HTTPException(422, "Выбран более чем один справочник состояний")
+            self.require_free_space(
+                sum(int(file["size"]) for file in files),
+                sources_uploaded=True,
+            )
             build_lock = self.lock()
             update_dataset(self.engine, dataset_id, status="preparing", stage="Запуск подготовки", error=None)
             background_tasks.add_task(self.run, dataset_id, handle, build_lock)
