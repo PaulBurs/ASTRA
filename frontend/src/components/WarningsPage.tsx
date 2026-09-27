@@ -1,46 +1,50 @@
-import { useState } from "react"
-import checksScreen from "../assets/screens/D08.png"
+import { useCallback, useState } from "react"
+import type { WorkspaceRepository } from "../api/workspace"
+import { useDemoStore } from "../hooks/useDemoStore"
+import { navigate, routeHref, type Route } from "../state/navigation"
+import { ResetDemoDialog, Toast, type Notice } from "./WorkspaceFeedback"
+import { DemoWorkspace } from "./DemoWorkspace"
 import "./WarningsPage.css"
 
 const pages = [
-  { id: "warnings", label: "Предупреждения" },
-  { id: "objects", label: "Объекты" },
+  { id: "warnings", label: "Главная" },
   { id: "map", label: "Карта" },
   { id: "checks", label: "Проверки" },
-  { id: "workOrders", label: "Заявки на работы" },
+  { id: "archive", label: "Архив" },
 ] as const
 
 type Page = (typeof pages)[number]["id"]
 
 const emptyPages = {
-  objects: {
-    subtitle: "Реестр инфраструктуры",
-    title: "Объектов пока нет",
-    description: "Объекты появятся здесь после загрузки данных об инфраструктуре.",
+  checks: {
+    subtitle: "Назначения и результаты осмотров",
+    title: "Проверок пока нет",
+    description: "Здесь появятся назначенные проверки и результаты осмотров.",
   },
   map: {
-    subtitle: "Расположение объектов",
-    title: "Нет объектов для отображения на карте",
-    description: "Объекты появятся на карте, когда будут доступны данные об их расположении.",
+    subtitle: "Текущие проверки: где и когда",
+    title: "Нет текущих проверок",
+    description: "Назначенные проверки с местом проведения появятся на карте.",
   },
-  workOrders: {
-    subtitle: "Данные из системы учёта работ",
-    title: "Заявок на работы пока нет",
-    description: "Заявки появятся здесь после получения данных из системы учёта работ.",
+  archive: {
+    subtitle: "Завершённые проверки с отчётами",
+    title: "Архив пока пуст",
+    description: "После завершения проверки и сохранения отчёта её карточка появится здесь.",
   },
 }
 
-interface WarningsPageProps {
-  onOpenJournal: () => void
-  onOpenObjects: () => void
-}
-
-export function WarningsPage({
-  onOpenJournal,
-  onOpenObjects,
-}: WarningsPageProps) {
-  const [activePage, setActivePage] = useState<Page>("warnings")
-  const pageTitle = pages.find((page) => page.id === activePage)!.label
+export function WarningsPage({ route, repository }: { route: Route; repository?: WorkspaceRepository }) {
+  const store = useDemoStore(repository)
+  const activePage = route.page as Page
+  const isDemo = repository?.kind !== "remote"
+  const mode = isDemo ? store.workspace?.preferences.mode ?? "demo" : "demo"
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [resetOpen, setResetOpen] = useState(false)
+  const closeNotice = useCallback(() => setNotice(null), [])
+  const notify = (message: string, type: Notice["type"] = "success") => setNotice({ id: Date.now(), message, type })
+  const onOpenJournal = () => notify("Журнал прогнозов пока не подключён. История действий доступна в карточках предупреждений и проверок.", "info")
+  const pageTitle = pages.find((page) => page.id === activePage)?.label
+  const onNavigate = (page: Page) => navigate(page)
 
   return (
     <div className="warnings-screen">
@@ -50,8 +54,16 @@ export function WarningsPage({
           <span>Диспетчерская</span>
         </div>
         <div className="warnings-userbar">
-          <time dateTime="2026-09-24T15:20:00">24 сентября 2026 · 15:20</time>
-          <span className="warnings-demo">Демо</span>
+          <time dateTime={new Date().toISOString()}>{new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}</time>
+          {isDemo && <><select className="warnings-mode" aria-label="Режим данных" value={mode} disabled={store.loading || store.busy || !!store.error} onChange={async (event) => {
+            const nextMode = event.target.value as "demo" | "empty"
+            try { await store.preferences({ ...store.workspace!.preferences, mode: nextMode }) }
+            catch (error) { notify((error as Error).message, "error") }
+          }}>
+            <option value="demo">Демо</option>
+            <option value="empty">Нет данных</option>
+          </select>
+          <button className="workspace-reset" type="button" disabled={store.busy} onClick={() => setResetOpen(true)}>Сбросить демо</button></>}
           <svg className="warnings-bell" viewBox="0 0 24 24" aria-label="Уведомления" role="img">
             <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
           </svg>
@@ -62,15 +74,19 @@ export function WarningsPage({
       <aside className="warnings-sidebar">
         <nav aria-label="Разделы диспетчера" className="warnings-navigation">
           {pages.map((page) => (
-            <button
+            <a
               key={page.id}
-              type="button"
+              href={routeHref(page.id)}
               className={activePage === page.id ? "warnings-nav-active" : undefined}
               aria-current={activePage === page.id ? "page" : undefined}
-              onClick={() => setActivePage(page.id)}
+              onClick={(event) => {
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                event.preventDefault()
+                onNavigate(page.id)
+              }}
             >
               {page.label}
-            </button>
+            </a>
           ))}
         </nav>
         <div className="warnings-role">
@@ -79,10 +95,18 @@ export function WarningsPage({
         </div>
       </aside>
 
-      {activePage === "warnings" ? (
+      {store.loading ? (
+        <main className="warnings-page"><section className="section-empty" role="status" aria-busy="true"><span className="workspace-spinner" aria-hidden="true" /><h1>Загрузка данных…</h1></section></main>
+      ) : store.error || !store.workspace ? (
+        <main className="warnings-page"><section className="section-empty" role="alert"><h1>Не удалось загрузить данные</h1><p>{store.error}</p><button type="button" onClick={() => void store.reload()}>Повторить загрузку</button></section></main>
+      ) : !pageTitle ? (
+        <main className="warnings-page"><section className="section-empty"><h1>Страница не найдена</h1><p>Проверьте адрес или выберите раздел в меню.</p><button type="button" onClick={() => navigate("warnings")}>На главную</button></section></main>
+      ) : mode === "demo" ? (
+        <DemoWorkspace key={activePage} page={activePage} selectedId={route.id} workspace={store.workspace} busy={store.busy} preferences={store.preferences} act={store.act} notify={notify} onOpenJournal={onOpenJournal} onReload={() => void store.reload()} />
+      ) : activePage === "warnings" ? (
       <main className="warnings-page">
         <div className="warnings-page-heading">
-          <h1>Предупреждения</h1>
+          <h1>Главная</h1>
           <p>Все открытые</p>
         </div>
         <section className="warnings-empty" aria-labelledby="warnings-empty-title">
@@ -93,19 +117,6 @@ export function WarningsPage({
           </button>
         </section>
       </main>
-      ) : activePage === "checks" ? (
-        <main className="screen-placeholder" aria-label={pageTitle}>
-          <h1 className="screen-placeholder-title">{pageTitle}</h1>
-          <div className="screen-placeholder-preview">
-            <img
-              src={checksScreen}
-              alt={`Макет раздела «${pageTitle}». Элементы внутри изображения неактивны.`}
-            />
-          </div>
-          <div className="screen-placeholder-note">
-            <span>Страница-заглушка · демонстрационный макет</span>
-          </div>
-        </main>
       ) : (
         <main className="warnings-page">
           <div className="warnings-page-heading">
@@ -115,23 +126,18 @@ export function WarningsPage({
           <section className="section-empty" aria-labelledby="section-empty-title">
             <h2 id="section-empty-title">{emptyPages[activePage].title}</h2>
             <p>{emptyPages[activePage].description}</p>
-            {activePage === "objects" && (
-              <button type="button" onClick={onOpenObjects}>
-                Открыть панель датчиков
-              </button>
-            )}
-            {activePage === "map" && (
-              <button type="button" onClick={() => setActivePage("objects")}>
-                Перейти к объектам
-              </button>
-            )}
           </section>
         </main>
       )}
 
+      <Toast notice={notice} onClose={closeNotice} />
+      {resetOpen && <ResetDemoDialog onCancel={() => setResetOpen(false)} onConfirm={async () => {
+        try { await store.reset(); setResetOpen(false); navigate("warnings"); notify("Демоданные и фильтры восстановлены.") }
+        catch (error) { setResetOpen(false); notify((error as Error).message, "error") }
+      }} />}
       <footer className="warnings-statusbar">
-        <span className="warnings-updated">●&nbsp; Данные обновлены в 15:19</span>
-        <span>Демонстрационные данные</span>
+        <span className="warnings-updated">{!isDemo ? "● Данные сервера" : mode === "demo" ? "● Деморежим · без подключения к серверу" : "Нет данных"}</span>
+        <span>{!isDemo ? "Рабочее пространство ASTRA" : mode === "demo" ? "Тестовые данные · изменения сохраняются в этом браузере" : "Пустые стартовые экраны"}</span>
       </footer>
     </div>
   )
