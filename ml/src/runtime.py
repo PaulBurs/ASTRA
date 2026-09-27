@@ -4,25 +4,23 @@ from ml.src.contracts import (
     PredictionOutput,
     TrainOutput,
 )
-
-
-MODEL_VERSION = "dummy-v1"
+from ml.src.inference import model_info
 
 
 def health() -> HealthOutput:
+    available, version = model_info()
     return HealthOutput(
-        available=True,
-        model_version=MODEL_VERSION,
+        available=available,
+        model_version=version,
     )
 
 
 def train() -> TrainOutput:
-    # Здесь ML-разработчик позже подключит
-    # настоящий training pipeline.
+    _, version = model_info()
     return TrainOutput(
-        status="completed",
-        model_version=MODEL_VERSION,
-        message="Dummy training completed",
+        status="not_started",
+        model_version=version,
+        message="Обучение запускается отдельным конвейером",
     )
 
 
@@ -43,5 +41,5 @@ def predict(
         sensor_id=prediction_input.sensor_id,
         probability=probability,
         horizon_hours=24,
-        model_version=MODEL_VERSION,
+        model_version="legacy-dummy-v1",
     )

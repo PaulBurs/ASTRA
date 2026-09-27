@@ -363,8 +363,13 @@ def add_recurrence_features(G: 'Grid', base: dict, nanfill: dict, feats: dict, K
     # интервалы между началами эпизодов: последний и сглаженный (EWM по 5 последним)
     idx = np.flatnonzero(st > 0)
     gaps = pd.Series(np.diff(idx, prepend=-1).astype('float64'))
-    gaps[np.r_[True, G.ch[idx][1:] != G.ch[idx][:-1]]] = np.nan          # первый эпизод канала
-    ewm = gaps.groupby(G.ch[idx]).transform(lambda s: s.ewm(span=5, ignore_na=True).mean())
+    if len(idx):
+        gaps[np.r_[True, G.ch[idx][1:] != G.ch[idx][:-1]]] = np.nan      # первый эпизод канала
+        ewm = gaps.groupby(G.ch[idx]).transform(lambda s: s.ewm(span=5, ignore_na=True).mean())
+    else:
+        # Prediction windows without alarms are valid and common.  Pandas rejects
+        # the one-item "first group" mask when there are no episode rows.
+        ewm = gaps.copy()
     for name, vals in (('start_gap_last', gaps), ('start_gap_ewm', ewm)):
         d = np.full(G.n, np.nan, 'float32')
         d[idx] = vals.to_numpy('float32')

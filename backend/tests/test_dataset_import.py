@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api.datasets import get_import_service
+from app.core.dependencies import get_ml_service
 from app.db.database import engine
+from app.ml.service import MLService
 from app.services.dataset_import_service import DatasetImportService
 from astra_pipeline.csv_input import CHANNELS, OBJECTS, RAW, prepared_event
 from astra_pipeline.registry import ensure_registry, schema_name, update_dataset
@@ -19,6 +21,29 @@ from lct_features import ALL_COLUMNS, OnlineFeaturizer
 from main import app
 from ml.src.api import app as ml_app
 from ml.src.datasets import iter_feature_batches, validate_dataset
+
+
+class PreparedPredictionMLService(MLService):
+    def __init__(self):
+        self.request = None
+
+    def health(self):
+        return True
+
+    def train(self):
+        raise AssertionError("Import must not train the model")
+
+    def predict(self, prediction_input):
+        raise AssertionError("Prepared datasets must use dataset inference")
+
+    def predict_dataset(self, dataset_id, sensor_id):
+        self.request = (dataset_id, sensor_id)
+        return {
+            "sensor_id": sensor_id,
+            "probability": 0.25,
+            "horizon_hours": 168,
+            "model_version": "trained-test-v1",
+        }
 
 
 def csv_bytes(columns, rows):
@@ -119,8 +144,13 @@ def test_files_to_pipeline_to_ml(api):
     assert len(response.json()) == 1
     assert response.json()[0]["name"] == "Газ ПК27"
     assert response.json()[0]["value"] == "Обнаружен газ"
+    prediction_service = PreparedPredictionMLService()
+    app.dependency_overrides[get_ml_service] = lambda: prediction_service
     response = client.get(f"/api/ml/predict/196746?dataset_id={id}")
     assert response.status_code == 200, response.text
+    assert response.json()["model_version"] == "trained-test-v1"
+    assert response.json()["horizon_hours"] == 168
+    assert prediction_service.request == (UUID(id), 196746)
     assert client.post(f"/api/datasets/{id}/prepare").status_code == 409
     assert client.put(f"/api/datasets/{id}/files/0", content=b"bad").status_code == 409
     assert client.delete(f"/api/datasets/{id}").status_code == 409

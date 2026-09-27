@@ -1,4 +1,5 @@
 import httpx
+from uuid import UUID
 
 from app.ml.contracts import MLPredictionInput
 from app.ml.service import MLService
@@ -58,4 +59,12 @@ class HTTPMLService(MLService):
 
         response.raise_for_status()
 
+        return response.json()
+
+    def predict_dataset(self, dataset_id: UUID, sensor_id: int) -> dict:
+        response = httpx.post(
+            f"{self.base_url}/datasets/{dataset_id}/predict/{sensor_id}",
+            timeout=max(self.timeout_seconds, 120.0),
+        )
+        response.raise_for_status()
         return response.json()

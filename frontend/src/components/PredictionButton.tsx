@@ -31,8 +31,12 @@ export function PredictionButton({
       const result = await getPrediction(sensorId, datasetId);
 
       setPrediction(result);
-    } catch {
-      setError("Не удалось получить прогноз");
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Не удалось получить прогноз"
+      );
     } finally {
       setLoading(false);
     }
