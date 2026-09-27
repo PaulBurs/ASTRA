@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lct-features"
+version = "1.0.0"
+description = "Признаки для модели 08.ДЖКХ: сырое событие СМВУ -> строка ml.dataset_ml"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+db = ["psycopg[binary]>=3.1"]
+
+[tool.setuptools]
+packages = ["lct_features"]
+
+[tool.setuptools.package-data]
+lct_features = ["dicts/*.csv"]

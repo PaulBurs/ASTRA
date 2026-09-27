@@ -1,0 +1,14 @@
+# Данные не храним в git (журнал 22,5 ГБ, лимит GitHub - 100 МБ на файл)
+*.csv
+!lct_features/dicts/*.csv
+*.csv.gz
+!tests/fixtures/*.csv.gz
+*.backup
+*.dump
+djkh08_ml_dump/
+export_ml/
+_sample/
+__pycache__/
+*.pyc
+*.egg-info/
+state*.pkl
