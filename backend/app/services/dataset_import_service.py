@@ -30,9 +30,9 @@ class DatasetImportService:
         return self.root / UUID(str(dataset_id)).hex
 
     def require_free_space(self, source_bytes: int, *, sources_uploaded: bool) -> None:
-        # CSV is compact. PostgreSQL tables, indexes, ML features and temporary
-        # tables need considerably more room while a dataset is being built.
-        factor = max(2.0, float(os.getenv("DATASET_STORAGE_EXPANSION_FACTOR", "10")))
+        # Includes uploaded CSV, logged event storage, ML features, indexes and
+        # temporary sorts. Compact imports share raw/clean event storage.
+        factor = max(2.0, float(os.getenv("DATASET_STORAGE_EXPANSION_FACTOR", "8")))
         reserve = int(os.getenv("DATASET_STORAGE_RESERVE_BYTES", str(2 * GIB)))
         database_bytes = source_bytes * (factor - (1 if sources_uploaded else 0))
         required = int(database_bytes) + reserve

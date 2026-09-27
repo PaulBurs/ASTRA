@@ -6,6 +6,9 @@ import psycopg
 from psycopg import sql
 
 from .csv_input import CHANNELS, OBJECTS, csv_rows, iter_events
+from .compact import compact_events
+from .features import build_features
+from .parallel import BuildSettings
 from .registry import schema_name
 
 SQL_ROOT = Path(__file__).resolve().parents[1] / "sql"
@@ -17,6 +20,10 @@ def run_script(conn, filename: str, schema: str) -> None:
     # These are trusted, versioned scripts, never uploaded SQL. Their DROP/TRUNCATE
     # statements are scoped to a new UUID schema, not the application's public tables.
     script = (SQL_ROOT / filename).read_text(encoding="utf-8")
+    execute_script(conn, script, schema)
+
+
+def execute_script(conn, script: str, schema: str) -> None:
     script = script.replace("public.", f"{schema}.").replace("ml.", f"{schema}.")
     script = script.replace("CREATE SCHEMA IF NOT EXISTS ml;", f"CREATE SCHEMA IF NOT EXISTS {schema};")
     with conn.cursor() as cursor:
@@ -40,14 +47,18 @@ def copy_references(conn, schema: str, table: str, path: Path, columns: list[str
 
 def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
     schema = schema_name(dataset_id)
+    settings = BuildSettings.from_env()
     progress("Подготовка таблиц", {})
     url = engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
     counts = {"source_rows": 0}
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
-            run_script(conn, "00_create_journal.sql", schema)
+            settings.configure(conn)
+            staging = (SQL_ROOT / "00_create_journal.sql").read_text(encoding="utf-8")
+            execute_script(conn, staging.replace("CREATE TABLE", "CREATE UNLOGGED TABLE"), schema)
             latest = {}
+            source_years = set()
             for file in files:
                 if file["role"] not in {"events", "prepared_events"}:
                     continue
@@ -58,6 +69,7 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
                     for row in iter_events(Path(file["path"]), file["role"]):
                         copy.write_row(row)
                         counts["source_rows"] += 1
+                        source_years.add(row[4].year)
                         old = latest.get(row[1])
                         if old is None or (row[4], row[0]) > (old[4], old[0]):
                             latest[row[1]] = row
@@ -82,8 +94,10 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             ''').fetchone()[0]
             if missing:
                 raise ValueError(f"В справочнике отсутствуют объекты для {missing} каналов")
+            for table in ("ref_channels", "ref_objects", "ref_state_fixed"):
+                conn.execute(f"ANALYZE {schema}.{table}")
             progress("Очистка и объединение событий", counts)
-            run_script(conn, "02_build_dataset.sql", schema)
+            inventory = compact_events(conn, url, schema, settings, source_years, progress, counts)
             event_rows, orphan_rows, duplicates = conn.execute(f'''
                 SELECT sum("строк_загружено"), sum("строк_сирот"), sum("удалено_дублей")
                 FROM {schema}.build_log
@@ -93,8 +107,11 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             if not event_rows:
                 raise ValueError("После проверки справочников в журнале не осталось событий")
             progress("Расчёт ML-признаков", counts)
-            run_script(conn, "03_ml_features.sql", schema)
-            counts["feature_rows"] = conn.execute(f"SELECT count(*) FROM {schema}.dataset_ml").fetchone()[0]
+            counts["feature_rows"] = build_features(
+                conn, url, schema, settings, inventory,
+                (SQL_ROOT / "03_ml_features.sql").read_text(encoding="utf-8"),
+                execute_script, progress, counts,
+            )
             if counts["feature_rows"] != counts["event_rows"]:
                 raise ValueError("Число ML-строк не совпало с числом событий. Проверьте совместимость справочников с кодами модели")
             counts["channels"] = conn.execute(f"SELECT count(*) FROM {schema}.ref_channels").fetchone()[0]
@@ -105,7 +122,6 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
                 for row in latest.values():
                     copy.write_row(row)
             conn.execute(f'CREATE UNIQUE INDEX ON {schema}.latest_sensor_events ("ид_канала_данных")')
-            conn.execute(f'CREATE INDEX ON {schema}.ext_journal_prepared ("ид_канала_данных", "дата_время_события", "ид_события")')
         except BaseException:
             # This UUID schema belongs only to the failed import. Previously ready
             # datasets and the app's public tables are never replaced or truncated.
