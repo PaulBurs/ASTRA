@@ -1,3 +1,5 @@
+import type { User } from "./api/auth"
+import type { WorkspaceRepository } from "./api/workspace"
 import { useEffect, useState } from "react"
 
 import { WarningsPage } from "./components/WarningsPage"
@@ -47,7 +49,7 @@ function numericSensorValue(sensor: Sensor): number {
   return Number.NEGATIVE_INFINITY
 }
 
-function App() {
+function App({ user, repository, onLogout, logoutBusy }: { user: User; repository: WorkspaceRepository; onLogout: () => Promise<void>; logoutBusy: boolean }) {
   const route = useRoute()
   const activePage = route.page === "sensors" ? "dashboard" : "warnings"
 
@@ -153,7 +155,7 @@ function App() {
 
   if (activePage === "warnings") {
     return (
-      <WarningsPage route={route} />
+      <WarningsPage route={route} user={user} repository={repository} onLogout={onLogout} logoutBusy={logoutBusy} />
     )
   }
 

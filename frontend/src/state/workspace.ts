@@ -16,7 +16,7 @@ export interface Workspace {
 }
 export const defaultFilters: Filters = { query: "", filter: "Все", category: "Все", sort: "newest", period: "Все" }
 export const isOpenWarning = (status: string) => status === "Новое" || status === "На проверке"
-export const isArchived = (check: DemoCheck) => check.status === "Завершена" && !!check.result?.trim()
+export const isArchived = (check: DemoCheck) => check.status === "Завершена" && check.outcome !== "unresolved" && !!check.result?.trim()
 export const isOverdue = (check: DemoCheck, now = new Date()) => check.status !== "Завершена" && new Date(check.deadline) < now
 export function formatDate(value?: string) {
   if (!value) return "Не указано"
@@ -61,7 +61,9 @@ export function createWorkspace(now = new Date()): Workspace {
   const history: HistoryEntry[] = data.warnings.map(w => ({ id: `warning-${w.id}`, at: new Date(now.getTime()-7200000).toISOString(), actor: "ASTRA · демо", objectId: w.objectId, warningId: w.id, action: `Получено предупреждение №${w.id}.` }))
   mergeLegacyData(data, history, now)
   for (const c of data.checks) history.push({ id: `check-${c.id}`, at: c.completedAt ?? now.toISOString(), actor: c.assignee, objectId: c.objectId, warningId: c.warningId, checkId: c.id, action: `Проверка №${c.id}: ${c.status}.${c.result ? " Отчёт: " + c.result : ""}` })
-  return { version: 2, revision: 0, assignees: [...assignees], data, history, preferences: { mode: "demo", filters: {} } }
+  const workspace: Workspace = { version: 2, revision: 0, assignees: [...assignees], data, history, preferences: { mode: "demo", filters: {} } }
+  reopenUnresolved(workspace, now)
+  return workspace
 }
 export type DemoAction =
   | { type: "assign"; warningId?: number; objectId?: number; title: string; assignee: string; plannedAt: string; deadline: string }
@@ -70,10 +72,10 @@ export type DemoAction =
   | { type: "planWork"; checkId: number; workDescription: string; assignee: string; deadline: string }
   | { type: "result"; checkId: number; outcome: keyof typeof outcomes; result: string; workDescription: string }
 
-export function applyAction(current: Workspace, action: DemoAction, now = new Date()): Workspace {
+export function applyAction(current: Workspace, action: DemoAction, now = new Date(), actor?: string): Workspace {
   const next = structuredClone(current)
   const { data } = next
-  const event = (record: Omit<HistoryEntry, "id" | "at">) => next.history.push({ ...record, id: `${now.getTime()}-${next.history.length}`, at: now.toISOString() })
+  const event = (record: Omit<HistoryEntry, "id" | "at">) => next.history.push({ ...record, actor: actor ?? record.actor, id: `${now.getTime()}-${next.history.length}`, at: now.toISOString() })
   const future = (value: string) => { const date = new Date(value); if (!Number.isFinite(date.getTime()) || date <= now) throw new Error("Срок завершения должен быть в будущем."); return date.toISOString() }
   const validAssignee = (value: string) => { if (!current.assignees.includes(value)) throw new Error("Выберите исполнителя.") }
   if (action.type === "assign" || action.type === "falseAlarm") {
@@ -119,15 +121,32 @@ export function applyAction(current: Workspace, action: DemoAction, now = new Da
     } else {
       if (check.status !== "В работе") throw new Error("Перед завершением начните проверку.")
       if (!action.result.trim() || !action.workDescription.trim() || !(action.outcome in outcomes)) throw new Error("Заполните итог, отчёт и выполненные работы (или укажите, что работы не требовались).")
-      check.status = "Завершена"
+      const completed = action.outcome !== "unresolved"
+      check.status = completed ? "Завершена" : "В работе"
       check.result = action.result.trim()
       check.workDescription = action.workDescription.trim()
       check.outcome = action.outcome
-      check.completedAt = now.toISOString()
-      if (warning) warning.status = action.outcome === "clear" ? "Ложная тревога" : "Подтверждено"
-      event({ ...base, action: `Проверка завершена и перемещена в архив. ${outcomes[action.outcome]}. Отчёт: ${check.result}
+      if (completed) check.completedAt = now.toISOString()
+      else delete check.completedAt
+      if (warning) warning.status = !completed ? "На проверке" : action.outcome === "clear" ? "Ложная тревога" : "Подтверждено"
+      event({ ...base, action: `${completed ? "Проверка завершена и автоматически перемещена в архив." : "Результат сохранён. Проверка остаётся в работе."} ${outcomes[action.outcome]}. Отчёт: ${check.result}
 Работы: ${check.workDescription}` })
     }
   }
   return next
+}
+
+// Earlier demos archived unresolved problems. Preserve their reports, reopen the task once.
+export function reopenUnresolved(workspace: Workspace, now = new Date()): boolean {
+  let changed = false
+  for (const check of workspace.data.checks) {
+    if (check.status !== "Завершена" || check.outcome !== "unresolved") continue
+    check.status = "В работе"
+    delete check.completedAt
+    const warning = workspace.data.warnings.find(w => w.id === check.warningId)
+    if (warning) warning.status = "На проверке"
+    workspace.history.push({ id: `reopened-${check.id}-${now.getTime()}`, at: now.toISOString(), actor: "ASTRA · обновление правил", objectId: check.objectId, warningId: check.warningId, checkId: check.id, action: "Проверка возвращена в работу: неисправность не устранена. Ранее сохранённый отчёт сохранён." })
+    changed = true
+  }
+  return changed
 }

@@ -1,0 +1,26 @@
+.login-screen { min-height:100vh; display:grid; grid-template-columns:1fr 460px; gap:64px; align-items:center; padding:64px max(32px,8vw); background:#f4f7fa; color:#17252f; box-sizing:border-box; }
+.login-intro { max-width:650px; }
+.login-brand { display:block; font-size:32px; letter-spacing:2px; margin-bottom:12px; }
+.login-intro > span { color:#64747f; }
+.login-intro h1 { font-size:clamp(32px,4vw,54px); line-height:1.15; margin:52px 0 24px; }
+.login-intro p { color:#64747f; max-width:440px; line-height:1.8; }
+.login-steps { display:grid; gap:18px; margin-top:40px; color:#175cd3; font-size:14px; }
+.login-card { background:white; border:1px solid #dde3e7; border-radius:16px; padding:36px; box-shadow:0 12px 40px #17252f08; min-width:0; }
+.login-badge { font-size:12px; color:#175cd3; background:#edf4ff; border-radius:4px; padding:6px 10px; }
+.login-card h2 { font-size:28px; margin:24px 0 12px; }
+.login-card p { font-size:14px; color:#64747f; line-height:1.6; }
+.login-card form { display:grid; gap:12px; margin-top:28px; }
+.login-card input { width:100%; box-sizing:border-box; border:1px solid #b9c5cf; padding:14px; border-radius:6px; font:inherit; }
+.login-card button { border:0; border-radius:6px; background:#175cd3; color:white; padding:14px; font:inherit; cursor:pointer; }
+.login-card button:disabled { opacity:.65; cursor:wait; }
+.login-card input:focus-visible, .login-card button:focus-visible { outline:3px solid #93b6fa; outline-offset:2px; }
+.login-card .login-error { color:#b42318; margin:0; }
+.login-demo { margin-top:28px; padding-top:20px; border-top:1px solid #e4e9ed; }
+.login-demo h3 { font-size:13px; color:#64747f; font-weight:500; }
+.login-demo > div { display:flex; gap:20px; align-items:center; margin:16px 0; }
+.login-demo code { color:#175cd3; background:#f4f7fa; padding:8px; border-radius:4px; }
+.login-demo small { display:block; color:#64747f; margin-top:4px; }
+.auth-error { position:fixed; bottom:24px; left:24px; right:24px; z-index:100; background:#fff0ed; color:#b42318; padding:20px; border:1px solid #efb4ad; border-radius:8px; }
+@media(max-width:900px) { .login-screen { grid-template-columns:1fr; gap:28px; padding:32px 20px; } .login-intro h1,.login-intro p,.login-steps { display:none; } .login-card { width:100%; max-width:480px; justify-self:center; box-sizing:border-box; padding:28px; } .login-intro { justify-self:center; text-align:center; } }
+body:has(.login-screen) { margin:0; }
+main.login-screen { max-width:none; margin:0; font-family:"IBM Plex Sans",Arial,sans-serif; }
