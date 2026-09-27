@@ -1,3 +1,4 @@
+import type { User } from "../api/auth"
 import { useCallback, useState, type ReactNode } from "react"
 import type { WorkspaceRepository } from "../api/workspace"
 import { useDemoStore } from "../hooks/useDemoStore"
@@ -38,12 +39,17 @@ const emptyPages = {
 interface Props {
   route: Route
   repository?: WorkspaceRepository
+  user: User
+  onLogout: () => Promise<void>
+  logoutBusy: boolean
   dataContent?: ReactNode
   sensorsContent?: ReactNode
   dataStatus?: string
 }
 
-export function WarningsPage({ route, repository, dataContent, sensorsContent, dataStatus }: Props) {
+export function WarningsPage({ route, repository, user, onLogout, logoutBusy, dataContent, sensorsContent, dataStatus }: Props) {
+  const technician = user.role === "technician"
+  const visiblePages = (technician ? [pages[2], pages[1], pages[3]] : pages).map(p => ({ ...p, label: technician && p.id === "checks" ? "Мои проверки" : p.label }))
   const store = useDemoStore(repository)
   const activePage = route.page as Page
   const sourcePage = activePage === "data" || activePage === "sensors"
@@ -54,7 +60,7 @@ export function WarningsPage({ route, repository, dataContent, sensorsContent, d
   const closeNotice = useCallback(() => setNotice(null), [])
   const notify = (message: string, type: Notice["type"] = "success") => setNotice({ id: Date.now(), message, type })
   const onOpenJournal = () => notify("Журнал прогнозов пока не подключён. История действий доступна в карточках предупреждений и проверок.", "info")
-  const pageTitle = pages.find((page) => page.id === activePage)?.label
+  const pageTitle = visiblePages.find((page) => page.id === activePage)?.label
   const onNavigate = (page: Page) => navigate(page)
 
   return (
@@ -62,12 +68,12 @@ export function WarningsPage({ route, repository, dataContent, sensorsContent, d
       <header className="warnings-topbar">
         <div className="warnings-brand">
           <strong>ASTRA</strong>
-          <span>Диспетчерская</span>
+          <span>{technician ? "Кабинет техспециалиста" : "Диспетчерская"}</span>
         </div>
         <div className="warnings-userbar">
           <time dateTime={new Date().toISOString()}>{new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}</time>
           {sourcePage && <span className="warnings-demo">Данные сервера</span>}
-          {!sourcePage && isDemo && <><select className="warnings-mode" aria-label="Режим данных" value={mode} disabled={store.loading || store.busy || !!store.error} onChange={async (event) => {
+          {!sourcePage && isDemo && !technician && <><select className="warnings-mode" aria-label="Режим данных" value={mode} disabled={store.loading || store.busy || !!store.error} onChange={async (event) => {
             const nextMode = event.target.value as "demo" | "empty"
             try { await store.preferences({ ...store.workspace!.preferences, mode: nextMode }) }
             catch (error) { notify((error as Error).message, "error") }
@@ -79,13 +85,13 @@ export function WarningsPage({ route, repository, dataContent, sensorsContent, d
           <svg className="warnings-bell" viewBox="0 0 24 24" aria-label="Уведомления" role="img">
             <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
           </svg>
-          <strong>ЕВ · Егор В.</strong>
+          <strong className="workspace-user">{user.name} · ID {user.id}</strong><button className="workspace-logout" disabled={store.busy || logoutBusy} onClick={() => void onLogout()}>{logoutBusy ? "Выходим…" : "Выйти"}</button>
         </div>
       </header>
 
       <aside className="warnings-sidebar">
-        <nav aria-label="Разделы диспетчера" className="warnings-navigation">
-          {pages.map((page) => (
+        <nav aria-label="Разделы приложения" className="warnings-navigation">
+          {visiblePages.map((page) => (
             <a
               key={page.id}
               href={routeHref(page.id)}
@@ -102,8 +108,8 @@ export function WarningsPage({ route, repository, dataContent, sensorsContent, d
           ))}
         </nav>
         <div className="warnings-role">
-          <span>Диспетчер</span>
-          <span>Смена 08:00–20:00</span>
+          <span>{technician ? "Техспециалист" : "Диспетчер"}</span>
+          <span>{user.name} · {user.id}</span>
         </div>
       </aside>
 
@@ -114,7 +120,7 @@ export function WarningsPage({ route, repository, dataContent, sensorsContent, d
       ) : !pageTitle ? (
         <main className="warnings-page"><section className="section-empty"><h1>Страница не найдена</h1><p>Проверьте адрес или выберите раздел в меню.</p><button type="button" onClick={() => navigate("warnings")}>На главную</button></section></main>
       ) : mode === "demo" ? (
-        <DemoWorkspace key={activePage} page={activePage} selectedId={route.id} workspace={store.workspace} busy={store.busy} preferences={store.preferences} act={store.act} notify={notify} onOpenJournal={onOpenJournal} onReload={() => void store.reload()} />
+        <DemoWorkspace user={user} key={activePage} page={activePage} selectedId={route.id} workspace={store.workspace} busy={store.busy} preferences={store.preferences} act={store.act} notify={notify} onOpenJournal={onOpenJournal} onReload={() => void store.reload()} />
       ) : activePage === "warnings" ? (
       <main className="warnings-page">
         <div className="warnings-page-heading">

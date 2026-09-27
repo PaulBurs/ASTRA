@@ -293,3 +293,7 @@ body:has(.warnings-screen) { margin: 0; }
 @media (max-width: 1250px) { .warnings-userbar { margin-right: 0; } .warnings-userbar time { margin-right: 0; } .warnings-userbar strong { margin-left: 0; } }
 @media (max-width: 650px) { .warnings-topbar { gap: 8px; padding: 0 12px; } .warnings-brand strong { font-size: 23px; } .warnings-userbar { gap: 6px; } .workspace-reset { font-size: 11px; padding: 7px; } .workspace-toast-host { right: 16px; bottom: 16px; } }
 @media (prefers-reduced-motion: reduce) { .workspace-spinner { animation: none; } .warnings-screen button { transition: none; } }
+.workspace-logout { border:1px solid #dde3e7; background:#fff; color:#17252f; border-radius:6px; padding:8px 14px; font:inherit; cursor:pointer; }
+.workspace-logout:disabled { opacity:.6; cursor:wait; }
+.workspace-logout:focus-visible { outline:2px solid #175cd3; outline-offset:2px; }
+@media(max-width:650px) { .warnings-userbar .workspace-user { display:inline; font-size:11px; } .warnings-userbar { flex-wrap:wrap; justify-content:flex-end; } .warnings-topbar { min-height:64px; height:auto; padding-top:12px; padding-bottom:12px; } }

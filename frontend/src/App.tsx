@@ -1,3 +1,5 @@
+import type { User } from "./api/auth"
+import type { WorkspaceRepository } from "./api/workspace"
 import { useEffect, useState } from "react"
 
 import { WarningsPage } from "./components/WarningsPage"
@@ -49,7 +51,7 @@ function numericSensorValue(sensor: Sensor): number {
   return Number.NEGATIVE_INFINITY
 }
 
-function App() {
+function App({ user, repository, onLogout, logoutBusy }: { user: User; repository: WorkspaceRepository; onLogout: () => Promise<void>; logoutBusy: boolean }) {
   const [datasetId, setDatasetId] = useState<string | undefined>()
   const [showLegacySource, setShowLegacySource] = useState(false)
   const route = useRoute()
@@ -167,6 +169,10 @@ function App() {
 
   return (
     <WarningsPage route={route}
+      user={user}
+      repository={repository}
+      onLogout={onLogout}
+      logoutBusy={logoutBusy}
       dataStatus={datasetImport.dataset?.stage}
       dataContent={<DatasetImportPanel controller={datasetImport} />}
       sensorsContent={
