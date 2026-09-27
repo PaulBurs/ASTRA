@@ -26,7 +26,8 @@ services:
 
   ml:
     build:
-      context: ./ml
+      context: .
+      dockerfile: ml/Dockerfile
 
     environment:
       ML_DATABASE_URL: postgresql+psycopg://astra:astra@postgres:5432/astra
@@ -36,6 +37,7 @@ services:
 
     volumes:
       - ./ml:/app/ml:Z
+      - ./data_pipeline:/opt/data_pipeline:ro,z
 
     command:
       [
@@ -69,7 +71,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
       
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -83,6 +86,7 @@ services:
       ML_DATA_SOURCE: ${ML_DATA_SOURCE:-postgres}
 
       ML_SERVICE_URL: http://ml:9000
+      DATASET_UPLOAD_DIR: /data/uploads
 
     ports:
       - "8000:8000"
@@ -90,6 +94,8 @@ services:
     volumes:
       - ./backend/app:/app/app:Z
       - ./backend/main.py:/app/main.py:Z
+      - ./data_pipeline:/opt/data_pipeline:ro,z
+      - ./data/uploads:/data/uploads:Z
 
     command:
       [

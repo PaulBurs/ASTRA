@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { PredictionButton } from "./components/PredictionButton"
 import { SensorDetails } from "./components/SensorDetails"
 import DataSourcePanel from "./components/DataSourcePanel"
+import DatasetImportPanel from "./components/DatasetImportPanel"
 
 import type {
   Sensor,
@@ -51,6 +52,8 @@ function numericSensorValue(
 
 
 function App() {
+  const [datasetId, setDatasetId] = useState<string | undefined>()
+  const [showLegacySource, setShowLegacySource] = useState(false)
   const [sensors, setSensors] =
     useState<Sensor[]>([])
 
@@ -149,13 +152,13 @@ function App() {
   }, [])
 
 
-  async function loadDashboard() {
+  async function loadDashboard(preparedDatasetId?: string) {
     setLoading(true)
     setError(null)
 
     try {
       const dashboard =
-        await getDashboard()
+        await getDashboard(preparedDatasetId)
 
       setSensors(
         dashboard.sensors,
@@ -181,12 +184,21 @@ function App() {
 
 
   function handleSourceConnected() {
+    setDatasetId(undefined)
     setSourceConnected(true)
     setSensors([])
     setSummary(null)
     setSelectedSensor(null)
 
     void loadDashboard()
+  }
+
+  function handleDatasetReady(id: string) {
+    setDatasetId(id)
+    setSensors([])
+    setSummary(null)
+    setSelectedSensor(null)
+    void loadDashboard(id)
   }
 
 
@@ -221,11 +233,16 @@ function App() {
       </header>
 
 
-      <DataSourcePanel
+      <DatasetImportPanel onReady={handleDatasetReady} />
+
+      <details onToggle={event => setShowLegacySource(event.currentTarget.open)}>
+        <summary>Подключить ранее подготовленную папку</summary>
+      {showLegacySource && <DataSourcePanel
         onConnected={
           handleSourceConnected
         }
-      />
+      />}
+      </details>
 
 
       {error && (
@@ -573,6 +590,8 @@ function App() {
                           }
                         >
                           <PredictionButton
+                            key={`${datasetId}-${sensor.id}`}
+                            datasetId={datasetId}
                             sensorId={
                               sensor.id
                             }
@@ -600,6 +619,7 @@ function App() {
 
       {selectedSensor && (
         <SensorDetails
+          datasetId={datasetId}
           sensor={selectedSensor}
           onClose={() =>
             setSelectedSensor(null)
@@ -670,4 +690,3 @@ function Status({
 
 
 export default App
-

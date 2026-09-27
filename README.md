@@ -234,6 +234,7 @@ cd backend
 python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install --no-deps -e ../data_pipeline
 ```
 
 Создать локальный `.env`:

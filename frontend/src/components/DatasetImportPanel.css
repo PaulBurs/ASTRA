@@ -1,0 +1,13 @@
+.dataset-import { border: 1px solid #d5dde6; border-radius: 12px; padding: 24px; margin: 24px 0; background: #fff; }
+.dataset-import h2 { margin-top: 0; }
+.dataset-file-label { display: grid; gap: 8px; margin: 20px 0; font-weight: 600; }
+.dataset-file-label input { padding: 12px; border: 1px dashed #a4b2c2; border-radius: 8px; }
+.dataset-file-list { max-height: 200px; overflow: auto; padding-left: 24px; }
+.dataset-file-list li { padding: 4px; overflow-wrap: anywhere; }
+.dataset-file-list span { color: #64748b; margin-left: 12px; }
+.dataset-note { color: #64748b; font-size: 14px; }
+.dataset-import progress { width: 100%; }
+.dataset-status { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+.dataset-status dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; max-width: 600px; }
+.dataset-status dd { margin: 0; font-variant-numeric: tabular-nums; }
+.dataset-ready { color: #176741; }
