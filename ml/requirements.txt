@@ -13,4 +13,10 @@ psycopg[binary]
 python-dotenv
 
 matplotlib
+
+# модель прогноза тревог (djkh_model/)
+duckdb>=1.1
+lightgbm>=4.3
+scipy
+optuna>=3.5
 jupyterlab

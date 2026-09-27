@@ -1,164 +1,113 @@
-import { useEffect, useRef, useState } from "react"
-import {
-  createDataset, discardDataset, getDataset, prepareDataset, uploadDatasetFile,
-  validateDatasetML, type Dataset,
-} from "../api/datasets"
+import type { DatasetImportController } from "../hooks/useDatasetImport"
+import { navigate, routeHref } from "../state/navigation"
 import "./DatasetImportPanel.css"
 
-const SAVED_DATASET = "astra.preparedDataset"
 const number = (value: number) => value.toLocaleString("ru-RU")
+const size = (bytes: number) => bytes >= 1024 ** 3
+  ? `${(bytes / 1024 ** 3).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ГБ`
+  : bytes >= 1024 ** 2
+    ? `${(bytes / 1024 ** 2).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} МБ`
+    : `${number(Math.ceil(bytes / 1024))} КБ`
 
-interface Props {
-  onReady: (datasetId: string) => void
+const roleNames: Record<string, string> = {
+  channels: "Справочник каналов", objects: "Справочник объектов",
+  events: "Журнал событий", prepared_events: "Подготовленный журнал", states: "Справочник состояний",
 }
 
-export default function DatasetImportPanel({ onReady }: Props) {
-  const [files, setFiles] = useState<File[]>([])
-  const [dataset, setDataset] = useState<Dataset | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [percent, setPercent] = useState(0)
-  const [currentFile, setCurrentFile] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const callback = useRef(onReady)
-  callback.current = onReady
-  const notified = useRef<string | null>(null)
-  const checkingML = dataset?.status === "prepared" && !dataset.error
-
-  useEffect(() => {
-    const id = localStorage.getItem(SAVED_DATASET)
-    if (id) {
-      getDataset(id).then(setDataset).catch(() => {
-        localStorage.removeItem(SAVED_DATASET)
-      })
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!dataset || (dataset.status !== "preparing" && !checkingML)) return
-    let disposed = false
-    let timer: ReturnType<typeof setTimeout>
-    const poll = async () => {
-      try {
-        const updated = await getDataset(dataset.id)
-        if (!disposed) { setDataset(updated); setError(null) }
-      } catch (cause) {
-        if (!disposed) setError(cause instanceof Error ? cause.message : "Не удалось проверить подготовку")
-      } finally {
-        if (!disposed) timer = setTimeout(poll, 2000)
-      }
-    }
-    timer = setTimeout(poll, 1000)
-    return () => { disposed = true; clearTimeout(timer) }
-  }, [dataset?.id, dataset?.status, checkingML])
-
-  useEffect(() => {
-    if (dataset && ["prepared", "ready"].includes(dataset.status) && notified.current !== dataset.id) {
-      notified.current = dataset.id
-      callback.current(dataset.id)
-    }
-  }, [dataset])
-
-  async function importFiles() {
-    setBusy(true)
-    setError(null)
-    setPercent(0)
-    try {
-      if (dataset && ["uploading", "error"].includes(dataset.status)) {
-        await discardDataset(dataset.id)
-        localStorage.removeItem(SAVED_DATASET)
-        setDataset(null)
-      }
-      let job = await createDataset(files)
-      setDataset(job)
-      localStorage.setItem(SAVED_DATASET, job.id)
-      const total = files.reduce((sum, file) => sum + file.size, 0)
-      let completed = 0
-      for (const [index, file] of files.entries()) {
-        setCurrentFile(file.name)
-        job = await uploadDatasetFile(job.id, index, file, bytes => {
-          setPercent(Math.min(100, Math.round((completed + bytes) / total * 100)))
-        })
-        completed += file.size
-        setDataset(job)
-      }
-      setCurrentFile("")
-      setDataset(await prepareDataset(job.id))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось подготовить данные")
-    } finally {
-      setCurrentFile("")
-      setBusy(false)
-    }
-  }
-
-  async function discardUpload() {
-    if (!dataset) return
-    setBusy(true)
-    try {
-      await discardDataset(dataset.id)
-      localStorage.removeItem(SAVED_DATASET)
-      setDataset(null)
-      setError(null)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось удалить загрузку")
-    } finally { setBusy(false) }
-  }
-
-  async function retryML() {
-    if (!dataset) return
-    setBusy(true)
-    setError(null)
-    try { setDataset(await validateDatasetML(dataset.id)) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "ML-сервис недоступен") }
-    finally { setBusy(false) }
-  }
-
-  const preparing = dataset?.status === "preparing" || checkingML
+export default function DatasetImportPanel({ controller }: { controller: DatasetImportController }) {
+  const { files, setFiles, dataset, busy, preparing, percent, currentFile, error,
+    setError, importFiles, retryML, discardUpload } = controller
+  const ready = dataset?.status === "ready" || dataset?.status === "prepared"
+  const displayedFiles = files.length ? files : dataset?.files ?? []
+  const totalSize = displayedFiles.reduce((sum, file) => sum + file.size, 0)
   return (
-    <section className="dataset-import" aria-labelledby="dataset-import-title">
-      <h2 id="dataset-import-title">Подготовить данные для ML</h2>
-      <p>Выберите CSV-журналы событий за нужные годы, справочник каналов и справочник объектов из распакованного архива.</p>
-      <label className="dataset-file-label">
-        Выбрать таблицы
-        <input type="file" multiple accept=".csv,text/csv" disabled={busy || preparing}
-          onChange={event => { setFiles(Array.from(event.target.files ?? [])); setError(null) }} />
-      </label>
-      {files.length > 0 && (
-        <ul className="dataset-file-list">
-          {files.map(file => <li key={file.name}>{file.name} <span>{number(Math.ceil(file.size / 1024))} КБ</span></li>)}
-        </ul>
-      )}
-      <button disabled={busy || preparing || files.length < 3} onClick={() => void importFiles()}>
-        {preparing ? "Подготовка данных…" : busy ? "Загрузка…" : "Загрузить и подготовить"}
-      </button>
-      <p className="dataset-note">Журналы будут объединены, очищены от дублей и преобразованы в признаки. Обучение запускается отдельно.</p>
-      {busy && currentFile && (
-        <div aria-live="polite">
-          <p>Загружается {currentFile}: {percent}% общего объёма</p>
-          <progress max={100} value={percent} aria-label="Загрузка файлов" />
+    <main className="warnings-page data-page">
+      <div className="warnings-page-heading">
+        <h1>Данные</h1>
+        <p>Загрузите таблицы и подготовьте набор для ML.</p>
+      </div>
+
+      <div className="dataset-layout">
+        <div className="dataset-main">
+          <section className="dataset-import" aria-labelledby="dataset-import-title">
+            <div className="dataset-card-heading">
+              <h2 id="dataset-import-title">Таблицы из архива</h2>
+              <span className="dataset-format">CSV · 2019–2026</span>
+            </div>
+            <p className="dataset-description">Выберите журналы событий, справочник каналов и справочник объектов из распакованного архива.</p>
+            <label className={`dataset-file-label ${busy || preparing ? "is-disabled" : ""}`}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5" /></svg>
+              <strong>Выбрать таблицы</strong>
+              <span>Можно выбрать несколько CSV-файлов одновременно</span>
+              <input type="file" multiple accept=".csv,text/csv" aria-label="Выбрать таблицы" disabled={busy || preparing}
+                onChange={event => { setFiles(Array.from(event.target.files ?? [])); setError(null) }} />
+            </label>
+            {displayedFiles.length > 0 && <>
+              <div className="dataset-selection-summary">
+                <strong>Файлов: {displayedFiles.length}</strong><span>{size(totalSize)}</span>
+              </div>
+              <ul className="dataset-file-list" aria-label="Выбранные таблицы">
+                {displayedFiles.map(file => <li key={file.name}>
+                  <span className="dataset-file-icon" aria-hidden="true">CSV</span>
+                  <div><strong>{file.name}</strong>{"role" in file && file.role && <small>{roleNames[file.role] ?? file.role}</small>}</div>
+                  <span>{size(file.size)}</span>
+                </li>)}
+              </ul>
+            </>}
+            {busy && currentFile && <div className="dataset-progress" aria-live="polite">
+              <div><span>Загружается {currentFile}</span><strong>{percent}%</strong></div>
+              <progress max={100} value={percent} aria-label="Общий прогресс загрузки" />
+            </div>}
+            <div className="dataset-actions">
+              <button className="dataset-primary" type="button" disabled={busy || preparing || files.length < 3} onClick={() => void importFiles()}>
+                {preparing ? "Подготовка данных…" : busy ? "Загрузка…" : "Загрузить и подготовить"}
+              </button>
+              <span>Обучение запускается отдельно</span>
+            </div>
+            {error && <p className="dataset-error" role="alert">{error}</p>}
+          </section>
+
+          {dataset && <section className="dataset-result" aria-labelledby="dataset-result-title" aria-live="polite">
+            <div className="dataset-card-heading">
+              <h2 id="dataset-result-title">Подготовка набора</h2>
+              <span className={`dataset-badge ${dataset.status === "ready" ? "is-ready" : dataset.status === "error" ? "is-error" : ""}`}>
+                {dataset.status === "ready" ? "Готово" : dataset.status === "error" ? "Ошибка" : ready ? "Данные подготовлены" : preparing ? "Обработка" : "Загрузка"}
+              </span>
+            </div>
+            <p className="dataset-stage">{dataset.stage}</p>
+            {preparing && <p className="dataset-note">Можно переходить между разделами. После завершения загрузки страницу можно закрыть: подготовка продолжится на сервере. Большой архив может обрабатываться несколько часов.</p>}
+            <dl className="dataset-counts">
+              {dataset.counts.source_rows !== undefined && <div><dt>Исходных строк</dt><dd>{number(dataset.counts.source_rows)}</dd></div>}
+              {dataset.counts.feature_rows !== undefined && <div><dt>Строк для ML</dt><dd>{number(dataset.counts.feature_rows)}</dd></div>}
+              {dataset.counts.channels !== undefined && <div><dt>Датчиков в справочнике</dt><dd>{number(dataset.counts.channels)}</dd></div>}
+              {dataset.counts.objects !== undefined && <div><dt>Объектов</dt><dd>{number(dataset.counts.objects)}</dd></div>}
+            </dl>
+            {dataset.counts.duplicate_rows !== undefined && <p className="dataset-note">Удалено дублей: {number(dataset.counts.duplicate_rows)}. Событий без канала в справочнике: {number(dataset.counts.orphan_rows ?? 0)}.</p>}
+            {dataset.status === "ready" && <p className="dataset-ready">ML-движок прочитал подготовленные признаки. Обучение не запускалось.</p>}
+            {dataset.error && <p role="alert" className="dataset-error">{dataset.error}</p>}
+            {dataset.status === "uploading" && !busy && <p className="dataset-note">Загрузка не завершена. Выберите файлы заново для новой загрузки.</p>}
+            <div className="dataset-actions">
+              {ready && <a className="dataset-secondary" href={routeHref("sensors")} onClick={event => {
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                event.preventDefault(); navigate("sensors")
+              }}>Открыть датчики</a>}
+              {dataset.status === "prepared" && dataset.error && <button type="button" disabled={busy} onClick={() => void retryML()}>Повторить проверку ML</button>}
+              {["uploading", "error"].includes(dataset.status) && !busy && <button type="button" onClick={() => void discardUpload()}>Удалить незавершённую загрузку</button>}
+            </div>
+          </section>}
         </div>
-      )}
-      {dataset && (
-        <div className="dataset-status" aria-live="polite">
-          <strong>{dataset.stage}</strong>
-          {preparing && <p>Большой архив может обрабатываться несколько часов. Страницу можно закрыть и открыть снова.</p>}
-          <dl>
-            {dataset.counts.source_rows !== undefined && <><dt>Обработано исходных строк</dt><dd>{number(dataset.counts.source_rows)}</dd></>}
-            {dataset.counts.event_rows !== undefined && <><dt>Очищенных событий</dt><dd>{number(dataset.counts.event_rows)}</dd></>}
-            {dataset.counts.duplicate_rows !== undefined && <><dt>Удалено дублей</dt><dd>{number(dataset.counts.duplicate_rows)}</dd></>}
-            {dataset.counts.orphan_rows !== undefined && <><dt>Событий без канала в справочнике</dt><dd>{number(dataset.counts.orphan_rows)}</dd></>}
-            {dataset.counts.feature_rows !== undefined && <><dt>Строк для ML</dt><dd>{number(dataset.counts.feature_rows)}</dd></>}
-          </dl>
-          {dataset.status === "ready" && <p className="dataset-ready">ML-движок прочитал подготовленные признаки. Обучение не запускалось.</p>}
-          {dataset.status === "prepared" && dataset.error && <button disabled={busy} onClick={() => void retryML()}>Повторить проверку ML</button>}
-          {dataset.error && <p role="alert" className="error-message">{dataset.error}</p>}
-          {dataset.status === "uploading" && !busy && <p>Загрузка не завершена. Выберите файлы заново для новой загрузки.</p>}
-          {["uploading", "error"].includes(dataset.status) && !busy && (
-            <button onClick={() => void discardUpload()}>Удалить незавершённую загрузку</button>
-          )}
-        </div>
-      )}
-      {error && <p className="error-message" role="alert">{error}</p>}
-    </section>
+
+        <aside className="dataset-help" aria-labelledby="dataset-help-title">
+          <h2 id="dataset-help-title">Что нужно выбрать</h2>
+          <ol>
+            <li><strong>Журналы событий</strong><span>Один или несколько файлов за нужные годы. Можно использовать уже объединённый журнал.</span></li>
+            <li><strong>Справочник каналов</strong><span>Связывает события с датчиками.</span></li>
+            <li><strong>Справочник объектов</strong><span>Указывает, где расположены датчики.</span></li>
+          </ol>
+          <div className="dataset-help-note"><strong>После загрузки</strong><p>Система объединит таблицы, удалит дубли, подготовит признаки и проверит доступ ML-движка к данным.</p></div>
+          <p className="dataset-note">Для полного архива потребуется около 150 ГБ свободного места под базу данных, а также место для загружаемых CSV.</p>
+        </aside>
+      </div>
+    </main>
   )
 }
