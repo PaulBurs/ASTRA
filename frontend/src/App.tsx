@@ -25,6 +25,7 @@ import {
   formatSensorValue,
 } from "./utils/sensorFormat"
 
+import { navigate, useRoute } from "./state/navigation"
 import "./App.css"
 
 type SensorFilter = "ALL" | SensorStatus
@@ -35,7 +36,6 @@ type SensorSort =
   | "VALUE_DESC"
   | "NAME_ASC"
 
-type ActivePage = "warnings" | "dashboard"
 
 const DISPLAY_LIMIT = 100
 
@@ -48,8 +48,8 @@ function numericSensorValue(sensor: Sensor): number {
 }
 
 function App() {
-  const [activePage, setActivePage] =
-    useState<ActivePage>("warnings")
+  const route = useRoute()
+  const activePage = route.page === "sensors" ? "dashboard" : "warnings"
 
   const [sensors, setSensors] = useState<Sensor[]>([])
   const [health, setHealth] =
@@ -109,6 +109,7 @@ function App() {
   )
 
   useEffect(() => {
+    if (activePage !== "dashboard") return
     getSystemHealth()
       .then((systemHealth) => {
         setHealth(systemHealth)
@@ -119,7 +120,7 @@ function App() {
       .finally(() => {
         setLoading(false)
       })
-  }, [])
+  }, [activePage])
 
   async function loadDashboard() {
     setLoading(true)
@@ -152,12 +153,7 @@ function App() {
 
   if (activePage === "warnings") {
     return (
-      <WarningsPage
-        onOpenObjects={() => setActivePage("dashboard")}
-        onOpenJournal={() =>
-          window.alert("Журнал прогнозов пока не подключён")
-        }
-      />
+      <WarningsPage route={route} />
     )
   }
 
@@ -200,15 +196,15 @@ function App() {
       >
         <button
           type="button"
-          onClick={() => setActivePage("warnings")}
+          onClick={() => navigate("warnings")}
         >
-          Предупреждения
+          Главная
         </button>
 
         <button
           type="button"
           aria-current="page"
-          onClick={() => setActivePage("dashboard")}
+          onClick={() => navigate("sensors")}
         >
           Датчики
         </button>
