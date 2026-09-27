@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.dashboard import router as dashboard_router
+from app.api.datasets import router as datasets_router
 from app.api.data_source import router as data_source_router
 from app.api.health import router as health_router
 from app.api.ml import router as ml_router
@@ -57,6 +58,7 @@ app.include_router(
 app.include_router(
     data_source_router,
 )
+app.include_router(datasets_router)
 
 
 @app.get("/")
@@ -65,4 +67,3 @@ def root():
         "application": "ASTRA",
         "status": "running",
     }
-

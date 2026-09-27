@@ -10,10 +10,11 @@ export interface MLPrediction {
 
 
 export async function getPrediction(
-  sensorId: number
+  sensorId: number,
+  datasetId?: string,
 ): Promise<MLPrediction> {
   const response = await fetch(
-    `${API_URL}/api/ml/predict/${sensorId}`
+    `${API_URL}/api/ml/predict/${sensorId}${datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : ""}`
   );
 
   if (!response.ok) {
