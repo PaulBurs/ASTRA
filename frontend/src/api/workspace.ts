@@ -1,4 +1,5 @@
-import { assignees, applyAction, mergeLegacyData, createWorkspace, type DemoAction, type Workspace } from "../state/workspace.ts"
+import { demoUsers, type User } from "./auth.ts"
+import { reopenUnresolved, assignees, applyAction, mergeLegacyData, createWorkspace, type DemoAction, type Workspace } from "../state/workspace.ts"
 
 export const WORKSPACE_KEY = "astra.demo.workspace.v2"
 type StorageAccess = Pick<Storage, "getItem" | "setItem">
@@ -38,6 +39,7 @@ export async function loadWorkspace(storage: StorageAccess = window.localStorage
       previous.preferences.filters = {}
       mergeLegacyData(previous.data, previous.history, new Date())
       if (!validateWorkspace(previous)) throw new Error()
+      reopenUnresolved(previous)
       storage.setItem(WORKSPACE_KEY, JSON.stringify(previous))
       return previous
     } catch { throw new Error("Не удалось перенести старые демоданные. Исходная копия сохранена; можно сбросить демо.") }
@@ -45,6 +47,7 @@ export async function loadWorkspace(storage: StorageAccess = window.localStorage
   let value: unknown
   try { value = JSON.parse(raw) } catch { throw new Error("Сохранённые демоданные повреждены. Повторите загрузку или сбросьте демо.") }
   if (!validateWorkspace(value)) throw new Error("Формат сохранённых демоданных не поддерживается. Можно сбросить демо к исходному набору.")
+  if (reopenUnresolved(value)) { value.revision++; storage.setItem(WORKSPACE_KEY, JSON.stringify(value)) }
   return value
 }
 
@@ -73,24 +76,72 @@ export function resetWorkspace(storage: StorageAccess = window.localStorage): Wo
 // implement the same methods with HTTP, including server-side authorization.
 export interface WorkspaceRepository {
   kind: "demo" | "remote"
+  subscribe?(onChange: () => void): () => void
   load(): Promise<Workspace>
   execute(action: DemoAction, expectedRevision: number): Promise<Workspace>
   preferences(preferences: Workspace["preferences"], expectedRevision: number): Promise<Workspace>
   reset(): Promise<Workspace>
 }
-export function createDemoRepository(storage?: StorageAccess): WorkspaceRepository { return {
-  kind: "demo",
-  load: () => loadWorkspace(storage),
-  async execute(action, revision) {
-    const current = await loadWorkspace(storage)
-    if (current.revision !== revision) throw new Error("Данные изменились в другой вкладке. Перезагрузите данные.")
-    return saveWorkspace(applyAction(current, action), revision, storage)
-  },
-  async preferences(preferences, revision) {
-    const current = await loadWorkspace(storage)
-    if (current.revision !== revision) throw new Error("Данные изменились в другой вкладке. Перезагрузите данные.")
-    return saveWorkspace({ ...current, preferences }, revision, storage)
-  },
-  reset: async () => resetWorkspace(storage),
-} }
+export function visibleWorkspace(full: Workspace, user?: User): Workspace {
+  if (!user || user.role === "dispatcher") return full
+  const checks = full.data.checks.filter(c => (c.assigneeId ?? demoUsers.find(u => u.name === c.assignee)?.id) === user.id)
+  const checkIds = new Set(checks.map(c => c.id)), objectIds = new Set(checks.map(c => c.objectId)), warningIds = new Set(checks.map(c => c.warningId))
+  return { ...full, assignees: [user.name], data: { ...full.data, checks, objects: full.data.objects.filter(o => objectIds.has(o.id)), warnings: full.data.warnings.filter(w => warningIds.has(w.id)), workOrders: [] }, history: full.history.filter(h => h.checkId ? checkIds.has(h.checkId) : warningIds.has(h.warningId)) }
+}
+export function createDemoRepository(storage?: StorageAccess, user?: User): WorkspaceRepository {
+  const source = () => storage ?? window.localStorage
+  const preferencesKey = `astra.preferences.v1.${user?.id ?? "default"}`
+  async function load() {
+    const full = await loadWorkspace(storage)
+    // Migrate legacy display-name assignments to stable employee IDs at the boundary.
+    full.data.checks = full.data.checks.map(c => ({ ...c, assigneeId: c.assigneeId ?? demoUsers.find(u => u.name === c.assignee)?.id }))
+    return full
+  }
+  function view(full: Workspace) {
+    const result = visibleWorkspace(full, user)
+    if (user) {
+      const raw = source().getItem(preferencesKey)
+      try { result.preferences = raw ? JSON.parse(raw) : { mode: "demo", filters: {} }; if (!result.preferences || !["demo", "empty"].includes(result.preferences.mode) || typeof result.preferences.filters !== "object") throw new Error() }
+      catch { result.preferences = {mode:"demo",filters:{}} }
+    }
+    return result
+  }
+  return {
+    kind: "demo",
+    subscribe(onChange) {
+      if (typeof window === "undefined") return () => {}
+      const listener = (event: StorageEvent) => { if (event.key === WORKSPACE_KEY) onChange() }
+      window.addEventListener("storage", listener)
+      return () => window.removeEventListener("storage", listener)
+    },
+    load: async () => view(await load()),
+    async execute(action, revision) {
+      const current = await load()
+      if (current.revision !== revision) throw new Error("Данные изменились в другой вкладке. Перезагрузите данные.")
+      if (action.type === "planWork") throw new Error("Изменение плана работ недоступно. Диспетчер наблюдает за выполнением.")
+      if (action.type === "assign" && action.warningId === undefined) throw new Error("Назначьте проверку из предупреждения на главной.")
+      if (user?.role === "dispatcher" && action.type !== "assign" && action.type !== "falseAlarm") throw new Error("Выполнение и отчёт доступны только назначенному техспециалисту.")
+      if (user?.role === "technician") {
+        if (action.type !== "advance" && action.type !== "result") throw new Error("Это действие доступно диспетчеру.")
+        if (!current.data.checks.some(c => c.id === action.checkId && c.assigneeId === user.id)) throw new Error("Эта проверка вам не назначена. Обновите список.")
+      }
+      const next = applyAction(current, action, new Date(), user?.name)
+      // Dispatcher may change the executor by display name; keep the ID synchronized.
+      next.data.checks = next.data.checks.map(c => ({ ...c, assigneeId: demoUsers.find(u => u.name === c.assignee)?.id }))
+      return view(saveWorkspace(next, revision, storage))
+    },
+    async preferences(preferences, revision) {
+      const current = await load()
+      if (current.revision !== revision) throw new Error("Данные изменились в другой вкладке. Перезагрузите данные.")
+      if (user) { source().setItem(preferencesKey, JSON.stringify(preferences)); return view(current) }
+      return saveWorkspace({ ...current, preferences }, revision, storage)
+    },
+    async reset() {
+      if (user?.role === "technician") throw new Error("Сброс доступен только диспетчеру.")
+      const next = resetWorkspace(storage)
+      if (user) for (const employee of demoUsers) source().setItem(`astra.preferences.v1.${employee.id}`, JSON.stringify(next.preferences))
+      return view(next)
+    },
+  }
+}
 export const demoRepository = createDemoRepository()

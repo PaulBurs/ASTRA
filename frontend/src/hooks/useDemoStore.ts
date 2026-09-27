@@ -22,6 +22,11 @@ export function useDemoStore(repository: WorkspaceRepository = demoRepository) {
   // Synchronize the UI with an external repository; the ref is a request counter, not a DOM node.
   // eslint-disable-next-line react/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void reload(); return () => { request.current++ } }, [reload])
+  useEffect(() => repository.subscribe?.(() => {
+    if (locked.current) return
+    const ticket = ++request.current
+    void repository.load().then(value => { if (ticket === request.current) accept(value) }).catch(reason => { if (ticket === request.current) setError(reason instanceof Error ? reason.message : "Не удалось обновить данные.") })
+  }), [repository])
   async function mutate(operation: () => Promise<Workspace>) {
     if (locked.current) throw new Error("Дождитесь сохранения предыдущего действия.")
     locked.current = true; setBusy(true); request.current++
