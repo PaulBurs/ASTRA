@@ -4,6 +4,10 @@ from fastapi import FastAPI, HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 
 from ml.src.datasets import validate_dataset
+from ml.src.inference import (
+    PredictionTargetNotFoundError,
+    predict_prepared_dataset,
+)
 
 from ml.src.contracts import (
     HealthOutput,
@@ -28,7 +32,7 @@ app = FastAPI(
 def validate_prepared_dataset(dataset_id: UUID):
     try:
         return validate_dataset(dataset_id)
-    except LookupError as error:
+    except PredictionTargetNotFoundError as error:
         raise HTTPException(404, str(error)) from error
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
@@ -60,3 +64,18 @@ def predict_model(
     prediction_input: PredictionInput,
 ) -> PredictionOutput:
     return predict(prediction_input)
+
+
+@app.post(
+    "/datasets/{dataset_id}/predict/{sensor_id}",
+    response_model=PredictionOutput,
+)
+def predict_prepared_sensor(dataset_id: UUID, sensor_id: int) -> PredictionOutput:
+    try:
+        return predict_prepared_dataset(dataset_id, sensor_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    except (SQLAlchemyError, FileNotFoundError, ImportError, OSError) as error:
+        raise HTTPException(503, "ML-модель или подготовленные данные недоступны") from error

@@ -8,6 +8,11 @@ RUN pip install \
     --no-cache-dir \
     -r /tmp/ml-requirements.txt
 
+# LightGBM wheels dynamically link against the GNU OpenMP runtime.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY data_pipeline /opt/data_pipeline
 ENV PYTHONPATH=/opt/data_pipeline
 COPY ml /app/ml

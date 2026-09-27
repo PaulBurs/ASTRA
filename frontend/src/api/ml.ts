@@ -18,7 +18,14 @@ export async function getPrediction(
   );
 
   if (!response.ok) {
-    throw new Error("Не удалось получить ML-прогноз");
+    let message = "Не удалось получить ML-прогноз";
+    try {
+      const payload = await response.json();
+      if (typeof payload.detail === "string") message = payload.detail;
+    } catch {
+      // The fallback message is suitable for non-JSON gateway errors.
+    }
+    throw new Error(message);
   }
 
   return response.json();
