@@ -1,4 +1,10 @@
 import os
+from uuid import UUID
+
+from fastapi import HTTPException
+from astra_pipeline.registry import ensure_registry, get_dataset
+from app.db.database import engine
+from app.repositories.prepared_dataset_repository import PreparedSensorRepository, PreparedMLDataRepository
 
 from app.ml.dummy import DummyMLService
 from app.ml.service import MLService
@@ -132,11 +138,27 @@ def get_ml_service() -> MLService:
     return _ml_service
 
 
-def get_sensor_repository() -> SensorRepository:
+def require_prepared_dataset(dataset_id: UUID):
+    ensure_registry(engine)
+    try:
+        job = get_dataset(engine, dataset_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    if job["status"] not in {"prepared", "ready"}:
+        raise HTTPException(409, "Данные ещё не подготовлены")
+
+
+def get_sensor_repository(dataset_id: UUID | None = None) -> SensorRepository:
+    if dataset_id is not None:
+        require_prepared_dataset(dataset_id)
+        return PreparedSensorRepository(engine, dataset_id)
     return _sensor_repository
 
 
-def get_ml_data_repository() -> MLDataRepository:
+def get_ml_data_repository(dataset_id: UUID | None = None) -> MLDataRepository:
+    if dataset_id is not None:
+        require_prepared_dataset(dataset_id)
+        return PreparedMLDataRepository(engine, dataset_id)
     return _ml_data_repository
 
 

@@ -1,5 +1,5 @@
 import type { User } from "../api/auth"
-import { useCallback, useState } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 import type { WorkspaceRepository } from "../api/workspace"
 import { useDemoStore } from "../hooks/useDemoStore"
 import { navigate, routeHref, type Route } from "../state/navigation"
@@ -12,6 +12,8 @@ const pages = [
   { id: "map", label: "Карта" },
   { id: "checks", label: "Проверки" },
   { id: "archive", label: "Архив" },
+  { id: "data", label: "Данные" },
+  { id: "sensors", label: "Датчики" },
 ] as const
 
 type Page = (typeof pages)[number]["id"]
@@ -34,11 +36,23 @@ const emptyPages = {
   },
 }
 
-export function WarningsPage({ route, repository, user, onLogout, logoutBusy }: { route: Route; repository?: WorkspaceRepository; user: User; onLogout: () => Promise<void>; logoutBusy: boolean }) {
+interface Props {
+  route: Route
+  repository?: WorkspaceRepository
+  user: User
+  onLogout: () => Promise<void>
+  logoutBusy: boolean
+  dataContent?: ReactNode
+  sensorsContent?: ReactNode
+  dataStatus?: string
+}
+
+export function WarningsPage({ route, repository, user, onLogout, logoutBusy, dataContent, sensorsContent, dataStatus }: Props) {
   const technician = user.role === "technician"
   const visiblePages = (technician ? [pages[2], pages[1], pages[3]] : pages).map(p => ({ ...p, label: technician && p.id === "checks" ? "Мои проверки" : p.label }))
   const store = useDemoStore(repository)
   const activePage = route.page as Page
+  const sourcePage = activePage === "data" || activePage === "sensors"
   const isDemo = repository?.kind !== "remote"
   const mode = isDemo ? store.workspace?.preferences.mode ?? "demo" : "demo"
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -58,7 +72,8 @@ export function WarningsPage({ route, repository, user, onLogout, logoutBusy }: 
         </div>
         <div className="warnings-userbar">
           <time dateTime={new Date().toISOString()}>{new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}</time>
-          {isDemo && !technician && <><select className="warnings-mode" aria-label="Режим данных" value={mode} disabled={store.loading || store.busy || !!store.error} onChange={async (event) => {
+          {sourcePage && <span className="warnings-demo">Данные сервера</span>}
+          {!sourcePage && isDemo && !technician && <><select className="warnings-mode" aria-label="Режим данных" value={mode} disabled={store.loading || store.busy || !!store.error} onChange={async (event) => {
             const nextMode = event.target.value as "demo" | "empty"
             try { await store.preferences({ ...store.workspace!.preferences, mode: nextMode }) }
             catch (error) { notify((error as Error).message, "error") }
@@ -98,7 +113,7 @@ export function WarningsPage({ route, repository, user, onLogout, logoutBusy }: 
         </div>
       </aside>
 
-      {store.loading ? (
+      {activePage === "data" ? dataContent : activePage === "sensors" ? sensorsContent : store.loading ? (
         <main className="warnings-page"><section className="section-empty" role="status" aria-busy="true"><span className="workspace-spinner" aria-hidden="true" /><h1>Загрузка данных…</h1></section></main>
       ) : store.error || !store.workspace ? (
         <main className="warnings-page"><section className="section-empty" role="alert"><h1>Не удалось загрузить данные</h1><p>{store.error}</p><button type="button" onClick={() => void store.reload()}>Повторить загрузку</button></section></main>
@@ -139,8 +154,8 @@ export function WarningsPage({ route, repository, user, onLogout, logoutBusy }: 
         catch (error) { setResetOpen(false); notify((error as Error).message, "error") }
       }} />}
       <footer className="warnings-statusbar">
-        <span className="warnings-updated">{!isDemo ? "● Данные сервера" : mode === "demo" ? "● Деморежим · без подключения к серверу" : "Нет данных"}</span>
-        <span>{!isDemo ? "Рабочее пространство ASTRA" : mode === "demo" ? "Тестовые данные · изменения сохраняются в этом браузере" : "Пустые стартовые экраны"}</span>
+        <span className="warnings-updated">{sourcePage ? dataStatus ?? "Импорт таблиц" : !isDemo ? "● Данные сервера" : mode === "demo" ? "● Деморежим · без подключения к серверу" : "Нет данных"}</span>
+        <span>{sourcePage ? "Подготовка данных без запуска обучения" : !isDemo ? "Рабочее пространство ASTRA" : mode === "demo" ? "Тестовые данные · изменения сохраняются в этом браузере" : "Пустые стартовые экраны"}</span>
       </footer>
     </div>
   )

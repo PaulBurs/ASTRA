@@ -20,8 +20,9 @@ export interface Dashboard {
 }
 
 
-export async function getDashboard(): Promise<Dashboard> {
-  const response = await fetch(`${API_URL}/api/dashboard`)
+export async function getDashboard(datasetId?: string): Promise<Dashboard> {
+  const query = datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : ""
+  const response = await fetch(`${API_URL}/api/dashboard${query}`)
 
   if (!response.ok) {
     throw new Error("Не удалось получить данные панели ASTRA")

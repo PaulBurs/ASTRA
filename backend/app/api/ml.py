@@ -1,3 +1,6 @@
+from uuid import UUID
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.dependencies import (
@@ -49,6 +52,7 @@ def train_model(
 )
 def predict(
     sensor_id: int,
+    dataset_id: UUID | None = None,
     ml_service: MLService = Depends(
         get_ml_service
     ),
@@ -59,6 +63,21 @@ def predict(
         get_ml_data_repository
     ),
 ):
+    if dataset_id is not None:
+        if sensor_repository.get_by_id(sensor_id) is None:
+            raise HTTPException(status_code=404, detail="Sensor not found")
+        try:
+            return ml_service.predict_dataset(dataset_id, sensor_id)
+        except httpx.HTTPStatusError as error:
+            detail = "Не удалось получить прогноз ML"
+            try:
+                detail = error.response.json().get("detail", detail)
+            except ValueError:
+                pass
+            raise HTTPException(error.response.status_code, detail) from error
+        except (httpx.HTTPError, NotImplementedError) as error:
+            raise HTTPException(503, "ML-сервис недоступен") from error
+
     service = PredictionService(
         sensor_repository=sensor_repository,
         ml_data_repository=ml_data_repository,
@@ -79,4 +98,3 @@ def predict(
             status_code=404,
             detail="Sensor data not found",
         )
-

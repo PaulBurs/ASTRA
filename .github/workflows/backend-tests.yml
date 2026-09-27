@@ -50,9 +50,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install --no-deps ../data_pipeline
 
       - name: Run tests
         run: pytest -v
+
+      - name: Check feature parity
+        run: python -m unittest discover -s ../data_pipeline/tests -v
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -77,3 +81,6 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Test frontend
+        run: npm test

@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from "react"
 import type { Section } from "../state/models"
 
-export type AppPage = Section | "sensors" | "notFound"
+export type AppPage = Section | "sensors" | "data" | "notFound"
 export interface Route { page: AppPage; id?: string }
 const paths: Record<Exclude<AppPage, "notFound">, string> = {
   warnings: "/home", map: "/map",
-  checks: "/checks", archive: "/archive", sensors: "/sensors",
+  checks: "/checks", archive: "/archive", sensors: "/sensors", data: "/data",
 }
 
 export function routeHref(page: Exclude<AppPage, "notFound">, id?: string | number) {
@@ -17,7 +17,7 @@ export function parseRoute(pathname: string): Route {
   pathname = pathname.replace(/^\/warnings(?=\/|$)/, "/home").replace(/^\/work-orders(?=\/|$)/, "/archive")
   const parts = pathname.replace(/\/$/, "").split("/").filter(Boolean)
   const page = (Object.keys(paths) as (keyof typeof paths)[]).find((key) => paths[key] === "/" + parts[0])
-  if (!page || parts.length > 2 || (parts.length === 2 && page === "sensors")) return { page: "notFound" }
+  if (!page || parts.length > 2 || (parts.length === 2 && (page === "sensors" || page === "data"))) return { page: "notFound" }
   try { return { page, id: parts[1] ? decodeURIComponent(parts[1]) : undefined } }
   catch { return { page: "notFound" } }
 }

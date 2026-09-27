@@ -9,12 +9,14 @@ import {
 
 interface SensorDetailsProps {
   sensor: Sensor
+  datasetId?: string
   onClose: () => void
 }
 
 
 export function SensorDetails({
   sensor,
+  datasetId,
   onClose,
 }: SensorDetailsProps) {
   return (
@@ -84,7 +86,7 @@ export function SensorDetails({
       <div className="sensor-details-prediction">
         <h3>ML-прогноз</h3>
 
-        <PredictionButton sensorId={sensor.id} />
+        <PredictionButton key={`${datasetId}-${sensor.id}`} sensorId={sensor.id} datasetId={datasetId} />
       </div>
     </section>
   )

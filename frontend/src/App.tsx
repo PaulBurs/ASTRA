@@ -6,6 +6,8 @@ import { WarningsPage } from "./components/WarningsPage"
 import { PredictionButton } from "./components/PredictionButton"
 import { SensorDetails } from "./components/SensorDetails"
 import DataSourcePanel from "./components/DataSourcePanel"
+import DatasetImportPanel from "./components/DatasetImportPanel"
+import { useDatasetImport } from "./hooks/useDatasetImport"
 
 import type {
   Sensor,
@@ -50,6 +52,8 @@ function numericSensorValue(sensor: Sensor): number {
 }
 
 function App({ user, repository, onLogout, logoutBusy }: { user: User; repository: WorkspaceRepository; onLogout: () => Promise<void>; logoutBusy: boolean }) {
+  const [datasetId, setDatasetId] = useState<string | undefined>()
+  const [showLegacySource, setShowLegacySource] = useState(false)
   const route = useRoute()
   const activePage = route.page === "sensors" ? "dashboard" : "warnings"
 
@@ -69,6 +73,7 @@ function App({ user, repository, onLogout, logoutBusy }: { user: User; repositor
     useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const datasetImport = useDatasetImport(handleDatasetReady)
 
   const visibleSensors = sensors
     .filter((sensor) => {
@@ -124,12 +129,12 @@ function App({ user, repository, onLogout, logoutBusy }: { user: User; repositor
       })
   }, [activePage])
 
-  async function loadDashboard() {
+  async function loadDashboard(preparedDatasetId?: string) {
     setLoading(true)
     setError(null)
 
     try {
-      const dashboard = await getDashboard()
+      const dashboard = await getDashboard(preparedDatasetId)
 
       setSensors(dashboard.sensors)
       setHealth(dashboard.system)
@@ -145,6 +150,7 @@ function App({ user, repository, onLogout, logoutBusy }: { user: User; repositor
   }
 
   function handleSourceConnected() {
+    setDatasetId(undefined)
     setSourceConnected(true)
     setSensors([])
     setSummary(null)
@@ -153,69 +159,35 @@ function App({ user, repository, onLogout, logoutBusy }: { user: User; repositor
     void loadDashboard()
   }
 
-  if (activePage === "warnings") {
-    return (
-      <WarningsPage route={route} user={user} repository={repository} onLogout={onLogout} logoutBusy={logoutBusy} />
-    )
+  function handleDatasetReady(id: string) {
+    setDatasetId(id)
+    setSensors([])
+    setSummary(null)
+    setSelectedSensor(null)
+    void loadDashboard(id)
   }
 
   return (
-    <main>
-      <header>
-        <div>
-          <h1>ASTRA</h1>
-          <p>
-            Система мониторинга инженерной инфраструктуры
-          </p>
-        </div>
-
-        {health ? (
-          <span
-            className={
-              health.status === "ok"
-                ? "system-online"
-                : "system-offline"
-            }
-          >
-            {health.status === "ok"
-              ? "● Система работает"
-              : "● Система недоступна"}
-          </span>
-        ) : (
-          <span className="system-offline">
-            ● Нет подключения
-          </span>
-        )}
-      </header>
-
-      <nav
-        aria-label="Разделы"
-        style={{
-          display: "flex",
-          gap: "8px",
-          margin: "16px 0",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => navigate("warnings")}
-        >
-          Главная
-        </button>
-
-        <button
-          type="button"
-          aria-current="page"
-          onClick={() => navigate("sensors")}
-        >
-          Датчики
-        </button>
-      </nav>
-
-      <>
-          <DataSourcePanel
-            onConnected={handleSourceConnected}
-          />
+    <WarningsPage route={route}
+      user={user}
+      repository={repository}
+      onLogout={onLogout}
+      logoutBusy={logoutBusy}
+      dataStatus={datasetImport.dataset?.stage}
+      dataContent={<DatasetImportPanel controller={datasetImport} />}
+      sensorsContent={
+        <main className="warnings-page sensors-page">
+          <div className="warnings-page-heading">
+            <h1>Датчики</h1>
+            <p>{datasetId ? "Показания из подготовленного набора данных" : "Подключите источник, чтобы увидеть показания датчиков"}</p>
+          </div>
+          <div className="sensors-source-actions">
+            <button type="button" onClick={() => navigate("data")}>Загрузить таблицы</button>
+            <details onToggle={event => setShowLegacySource(event.currentTarget.open)}>
+              <summary>Подключить ранее подготовленную папку</summary>
+              {showLegacySource && <DataSourcePanel onConnected={handleSourceConnected} />}
+            </details>
+          </div>
 
           {error && (
             <div className="error-message">{error}</div>
@@ -475,6 +447,8 @@ function App({ user, repository, onLogout, logoutBusy }: { user: User; repositor
                             }
                           >
                             <PredictionButton
+                              key={`${datasetId}-${sensor.id}`}
+                              datasetId={datasetId}
                               sensorId={sensor.id}
                             />
                           </div>
@@ -497,12 +471,14 @@ function App({ user, repository, onLogout, logoutBusy }: { user: User; repositor
 
           {selectedSensor && (
             <SensorDetails
+              datasetId={datasetId}
               sensor={selectedSensor}
               onClose={() => setSelectedSensor(null)}
             />
           )}
-      </>
-    </main>
+        </main>
+      }
+    />
   )
 }
 
