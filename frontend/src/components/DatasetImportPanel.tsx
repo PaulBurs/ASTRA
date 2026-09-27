@@ -16,8 +16,12 @@ const roleNames: Record<string, string> = {
 
 export default function DatasetImportPanel({ controller }: { controller: DatasetImportController }) {
   const { files, setFiles, dataset, busy, preparing, percent, currentFile, error,
-    setError, importFiles, retryML, discardUpload } = controller
+    setError, importFiles, retryPreparation, retryML, discardUpload } = controller
   const ready = dataset?.status === "ready" || dataset?.status === "prepared"
+  const allFilesUploaded = dataset?.status === "uploading"
+    && dataset.files.length > 0
+    && dataset.files.every(file => file.uploaded)
+  const canRetryPreparation = allFilesUploaded
   const displayedFiles = files.length ? files : dataset?.files ?? []
   const totalSize = displayedFiles.reduce((sum, file) => sum + file.size, 0)
   return (
@@ -59,8 +63,14 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
               <progress max={100} value={percent} aria-label="Общий прогресс загрузки" />
             </div>}
             <div className="dataset-actions">
-              <button className="dataset-primary" type="button" disabled={busy || preparing || files.length < 3} onClick={() => void importFiles()}>
-                {preparing ? "Подготовка данных…" : busy ? "Загрузка…" : "Загрузить и подготовить"}
+              <button className="dataset-primary" type="button" disabled={busy || preparing || (!canRetryPreparation && files.length < 3)} onClick={() => void importFiles()}>
+                {preparing
+                  ? "Подготовка данных…"
+                  : busy
+                    ? "Загрузка…"
+                    : canRetryPreparation
+                      ? "Повторить запуск подготовки"
+                      : "Загрузить и подготовить"}
               </button>
               <span>Обучение запускается отдельно</span>
             </div>
@@ -85,12 +95,15 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
             {dataset.counts.duplicate_rows !== undefined && <p className="dataset-note">Удалено дублей: {number(dataset.counts.duplicate_rows)}. Событий без канала в справочнике: {number(dataset.counts.orphan_rows ?? 0)}.</p>}
             {dataset.status === "ready" && <p className="dataset-ready">ML-движок прочитал подготовленные признаки. Обучение не запускалось.</p>}
             {dataset.error && <p role="alert" className="dataset-error">{dataset.error}</p>}
-            {dataset.status === "uploading" && !busy && <p className="dataset-note">Загрузка не завершена. Выберите файлы заново для новой загрузки.</p>}
+            {dataset.status === "uploading" && !busy && (allFilesUploaded
+              ? <p className="dataset-ready">Все файлы загружены. Повторная загрузка не требуется. Запустите подготовку, когда завершится обработка предыдущего набора.</p>
+              : <p className="dataset-note">Загрузка файлов не завершена. Удалите этот набор перед новой загрузкой.</p>)}
             <div className="dataset-actions">
               {ready && <a className="dataset-secondary" href={routeHref("sensors")} onClick={event => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
                 event.preventDefault(); navigate("sensors")
               }}>Открыть датчики</a>}
+              {allFilesUploaded && <button type="button" disabled={busy} onClick={() => void retryPreparation()}>Запустить подготовку</button>}
               {dataset.status === "prepared" && dataset.error && <button type="button" disabled={busy} onClick={() => void retryML()}>Повторить проверку ML</button>}
               {["uploading", "error"].includes(dataset.status) && !busy && <button type="button" onClick={() => void discardUpload()}>Удалить незавершённую загрузку</button>}
             </div>

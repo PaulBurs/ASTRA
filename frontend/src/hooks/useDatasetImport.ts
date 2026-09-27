@@ -60,6 +60,13 @@ export function useDatasetImport(onReady: (datasetId: string) => void) {
     setError(null)
     setPercent(0)
     try {
+      const uploadedDataset = dataset?.status === "uploading"
+        && dataset.files.length > 0
+        && dataset.files.every(file => file.uploaded)
+      if (uploadedDataset) {
+        setDataset(await prepareDataset(dataset.id))
+        return
+      }
       if (dataset && ["uploading", "error"].includes(dataset.status)) {
         await discardDataset(dataset.id)
         localStorage.removeItem(SAVED_DATASET)
@@ -79,6 +86,9 @@ export function useDatasetImport(onReady: (datasetId: string) => void) {
         setDataset(job)
       }
       setCurrentFile("")
+      // The server now owns complete copies. Clearing browser File objects makes
+      // a later click retry preparation instead of uploading gigabytes again.
+      setFiles([])
       setDataset(await prepareDataset(job.id))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось подготовить данные")
@@ -110,11 +120,20 @@ export function useDatasetImport(onReady: (datasetId: string) => void) {
     finally { setBusy(false) }
   }
 
+  async function retryPreparation() {
+    if (!dataset || dataset.status !== "uploading") return
+    setBusy(true)
+    setError(null)
+    try { setDataset(await prepareDataset(dataset.id)) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось запустить подготовку") }
+    finally { setBusy(false) }
+  }
+
   const preparing = dataset?.status === "preparing" || checkingML
 
   return {
     files, setFiles, dataset, busy, preparing, percent, currentFile, error,
-    setError, importFiles, retryML, discardUpload,
+    setError, importFiles, retryPreparation, retryML, discardUpload,
   }
 }
 
