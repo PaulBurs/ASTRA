@@ -10,14 +10,22 @@ export interface MLPrediction {
 
 
 export async function getPrediction(
-  sensorId: number
+  sensorId: number,
+  datasetId?: string,
 ): Promise<MLPrediction> {
   const response = await fetch(
-    `${API_URL}/api/ml/predict/${sensorId}`
+    `${API_URL}/api/ml/predict/${sensorId}${datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : ""}`
   );
 
   if (!response.ok) {
-    throw new Error("Не удалось получить ML-прогноз");
+    let message = "Не удалось получить ML-прогноз";
+    try {
+      const payload = await response.json();
+      if (typeof payload.detail === "string") message = payload.detail;
+    } catch {
+      // The fallback message is suitable for non-JSON gateway errors.
+    }
+    throw new Error(message);
   }
 
   return response.json();

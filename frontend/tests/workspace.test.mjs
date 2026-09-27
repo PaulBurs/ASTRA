@@ -72,6 +72,14 @@ test('new routes and legacy warning links, no objects page',()=>{
  assert.equal(routeHref('warnings'),'/home');assert.deepEqual(parseRoute('/archive/207'),{page:'archive',id:'207'});assert.deepEqual(parseRoute('/map/207'),{page:'map',id:'207'});assert.deepEqual(parseRoute('/warnings/1045'),{page:'warnings',id:'1045'});assert.deepEqual(parseRoute('/objects'),{page:'notFound'});assert.deepEqual(parseRoute('/home/%broken'),{page:'notFound'})
 })
 
+test('data upload and sensor pages have stable routes without entity ids',()=>{
+ assert.equal(routeHref('data'),'/data')
+ assert.deepEqual(parseRoute('/data/'),{page:'data',id:undefined})
+ assert.deepEqual(parseRoute('/sensors'),{page:'sensors',id:undefined})
+ assert.deepEqual(parseRoute('/data/123'),{page:'notFound'})
+ assert.deepEqual(parseRoute('/sensors/123'),{page:'notFound'})
+})
+
 test('async repository commands return saved snapshots and reject stale clients', async()=>{
  const repo=createDemoRepository(storage());const initial=await repo.load()
  const next=await repo.execute({type:'advance',checkId:208},initial.revision)

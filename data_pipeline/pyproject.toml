@@ -10,10 +10,13 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.optional-dependencies]
-db = ["psycopg[binary]>=3.1"]
+db = ["psycopg[binary]>=3.1", "SQLAlchemy>=2"]
 
 [tool.setuptools]
-packages = ["lct_features"]
+packages = ["lct_features", "astra_pipeline"]
 
 [tool.setuptools.package-data]
 lct_features = ["dicts/*.csv"]
+
+[tool.setuptools.data-files]
+"share/astra-pipeline/sql" = ["sql/00_create_journal.sql", "sql/01_reference_tables.sql", "sql/02_build_dataset.sql", "sql/03_ml_features.sql"]

@@ -44,4 +44,3 @@ export interface DemoData {
   checks: DemoCheck[]
   workOrders: DemoWorkOrder[]
 }
-
