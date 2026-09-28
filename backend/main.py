@@ -7,6 +7,7 @@ from app.api.data_source import router as data_source_router
 from app.api.health import router as health_router
 from app.api.ml import router as ml_router
 from app.api.sensors import router as sensors_router
+from app.api.live_workspace import router as workspace_router
 
 
 app = FastAPI(
@@ -59,6 +60,7 @@ app.include_router(
     data_source_router,
 )
 app.include_router(datasets_router)
+app.include_router(workspace_router)
 
 
 @app.get("/")

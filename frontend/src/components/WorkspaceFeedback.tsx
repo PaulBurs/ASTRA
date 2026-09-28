@@ -19,7 +19,7 @@ export function ResetDemoDialog({ onCancel, onConfirm }: { onCancel: () => void;
   useEffect(() => { dialog.current?.showModal() }, [])
   return <dialog ref={dialog} className="workspace-dialog" aria-labelledby="reset-demo-title" onCancel={onCancel}>
     <h2 id="reset-demo-title">Сбросить демо?</h2>
-    <p>Будут удалены созданные вами проверки, решения и история действий в этом браузере. Данные и фильтры вернутся к исходному демонстрационному набору.</p>
+    <p>Будут сброшены демонстрационные проверки, решения и история действий в этом браузере. Разделы станут пустыми до следующего нажатия «Загрузить и подготовить». Загруженная база v1.0.1 сохранится.</p>
     <div className="workspace-dialog-actions"><button type="button" autoFocus onClick={onCancel}>Отмена</button><button type="button" className="danger" onClick={onConfirm}>Сбросить данные</button></div>
   </dialog>
 }

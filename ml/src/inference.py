@@ -7,6 +7,8 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from uuid import UUID
+from threading import BoundedSemaphore, Lock
+from functools import wraps
 
 from sqlalchemy import text
 
@@ -19,6 +21,16 @@ from ml.src.datasets import prepared_dataset
 MODEL_DIR = Path(os.getenv("ML_MODEL_DIR", Path(__file__).resolve().parents[1] / "out_final"))
 ARTIFACTS_PATH = MODEL_DIR / "artifacts.json"
 MODEL_PATH = MODEL_DIR / "lgb_model.txt"
+_feature_slots = BoundedSemaphore(max(1, min(4, int(os.getenv("ML_FORECAST_WORKERS", "2")))))
+_score_lock = Lock()
+
+
+def bounded_inference(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with _feature_slots:
+            return function(*args, **kwargs)
+    return wrapped
 
 
 class PredictionTargetNotFoundError(LookupError):
@@ -146,6 +158,7 @@ def _hourly_aggregates(conn, schema: str, object_code: int, start_at, as_of, cfg
     return aggregate
 
 
+@bounded_inference
 def predict_prepared_dataset(
     dataset_id: UUID,
     sensor_id: int,
@@ -226,7 +239,10 @@ def predict_prepared_dataset(
         if target_rows.empty:
             raise ValueError("Не удалось построить признаки датчика")
         row = int(target_rows[-1])
-        probability = float(booster.predict(features.loc[[row], artifacts["feat_cols"]])[0])
+        # Feature construction and SQL run concurrently; the shared Booster's
+        # small scoring call is serialized and cannot oversubscribe OpenMP.
+        with _score_lock:
+            probability = float(booster.predict(features.loc[[row], artifacts["feat_cols"]], num_threads=1)[0])
         return PredictionOutput(
             sensor_id=sensor_id,
             probability=probability,
