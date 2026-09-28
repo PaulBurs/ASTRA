@@ -31,6 +31,9 @@ services:
 
     environment:
       ML_DATABASE_URL: postgresql+psycopg://astra:astra@postgres:5432/astra
+      ML_FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
 
     ports:
       - "9000:9000"
@@ -86,6 +89,8 @@ services:
       ML_DATA_SOURCE: ${ML_DATA_SOURCE:-postgres}
 
       ML_SERVICE_URL: http://ml:9000
+      FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
+      FORECAST_BATCH_SIZE: ${FORECAST_BATCH_SIZE:-16}
       DATASET_UPLOAD_DIR: /data/uploads
       DATASET_BUILD_WORKERS: ${DATASET_BUILD_WORKERS:-2}
       DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-64}

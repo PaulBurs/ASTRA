@@ -189,3 +189,59 @@ def test_batch_stop_finishes_inflight_work_and_can_resume(api, monkeypatch):
     resumed = wait_for_job(dataset_id)
     assert resumed["status"] == "completed"
     assert resumed["completed"] == resumed["predicted"] == 5
+
+
+def test_batch_transport_parallelism_stop_resume_and_partial_results(api, monkeypatch):
+    _, dataset_id = prepared(api)
+    dataset_id = UUID(dataset_id)
+    monkeypatch.setattr(forecast_jobs, "LOCK_ID", 418739214)
+    monkeypatch.setattr(forecast_jobs, "WORKERS", 2)
+    monkeypatch.setattr(forecast_jobs, "BATCH_SIZE", 2)
+    started, release, lock = Event(), Event(), Lock()
+    called = []
+
+    class Service:
+        def predict_dataset_batch(self, dataset, sensors):
+            assert dataset == dataset_id
+            with lock:
+                called.append(sensors)
+                if len(called) == 2:
+                    started.set()
+            assert release.wait(timeout=5)
+            return {"predictions": [
+                {"sensor_id": sensor, "status": "skipped", "error": "Нет истории"}
+                if sensor == 3 else
+                {"sensor_id": sensor, "status": "ready", "result": {
+                    "sensor_id": sensor, "probability": 0.2, "horizon_hours": 168, "model_version": "test"}}
+                for sensor in sensors
+            ]}
+
+    forecast_jobs.start_job(engine, dataset_id, list(range(1, 8)), Service())
+    assert started.wait(timeout=5)
+    forecast_jobs.stop_job(engine, dataset_id)
+    release.set()
+    stopped = wait_for_job(dataset_id)
+    assert stopped["status"] == "stopped"
+    assert (stopped["completed"], stopped["predicted"], stopped["skipped"]) == (4, 3, 1)
+    assert sorted(called) == [[1, 2], [3, 4]]
+    forecast_jobs.start_job(engine, dataset_id, list(range(1, 8)), Service())
+    resumed = wait_for_job(dataset_id)
+    assert resumed["status"] == "completed"
+    assert (resumed["completed"], resumed["predicted"], resumed["skipped"]) == (7, 6, 1)
+    assert sorted(called) == [[1, 2], [3, 4], [5, 6], [7]]
+
+
+def test_malformed_batch_cannot_save_results_for_other_sensors(api):
+    _, dataset_id = prepared(api)
+    dataset_id = UUID(dataset_id)
+    forecast_jobs.ensure_tables(engine)
+
+    class Service:
+        def predict_dataset_batch(self, dataset, sensors):
+            return {"predictions": [{"sensor_id": 99, "status": "skipped"}]}
+
+    counts = forecast_jobs._predict_batch(engine, Service(), dataset_id, [1, 2])
+    assert counts == {"failed": 2}
+    results = forecast_jobs.predictions(engine, dataset_id)
+    assert [p["sensor_id"] for p in results] == [1, 2]
+    assert all(p["status"] == "error" for p in results)
