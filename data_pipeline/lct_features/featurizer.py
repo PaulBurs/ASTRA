@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import pickle
+import re
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -114,10 +115,15 @@ class OnlineFeaturizer:
         if s.cur_t is None and ts is not None:
             s.cur_t = parse_ts(ts)
 
-    def warm_up_from_postgres(self, conn, now=None) -> int:
+    def warm_up_from_postgres(self, conn, now=None, schema: str = 'ml') -> int:
         """Прогрев окон из ml.dataset_events: для каждого типа датчика - события за последние
-        L дней до now (L из ml.window_params) + момент последнего события до окна.
+        L дней до now (L - окно типа) + момент последнего события каждого канала до окна.
+        Нужна только таблица ml.dataset_events (подходит и лёгкая база tools/build_db_light.sh).
+        schema - схема с dataset_events: 'ml' для сборки скриптами, 'ds_<uuid>' для набора,
+        подготовленного через интерфейс ASTRA (там dataset_events - представление).
         conn - DB-API соединение (psycopg 3 / psycopg2). Возвращает число прочитанных событий."""
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', schema):
+            raise ValueError(f'недопустимое имя схемы: {schema!r}')
         now = parse_ts(now) if now is not None else datetime.now()
         groups: dict[int, list[int]] = {}
         for code, days in self.ref.window_days.items():
@@ -126,22 +132,22 @@ class OnlineFeaturizer:
         cur = conn.cursor()
         for days, codes in sorted(groups.items()):
             start = now - timedelta(days=days)
+            types = [self.ref.sensor_type[c] for c in codes]
+            channels = [ch.channel_id for ch in self.ref.channels.values() if ch.sensor_code in codes]
             cur.execute('''
-                SELECT mc."ид_канала_данных",
-                       (SELECT max(e."дата_время_события") FROM ml.dataset_events e
-                         WHERE e."ид_канала_данных" = mc."ид_канала_данных"
-                           AND e."дата_время_события" < %s)
-                FROM ml.map_channel mc WHERE mc."код_типа_датчика" = ANY(%s)''', (start, codes))
+                SELECT c, (SELECT max(e."дата_время_события") FROM {schema}.dataset_events e
+                            WHERE e."ид_канала_данных" = c AND e."дата_время_события" < %s)
+                FROM unnest(%s::bigint[]) AS c'''.format(schema=schema), (start, channels))
             for cid, t_before in cur.fetchall():
                 self.seed_last_event(cid, t_before)
             cur.execute('''
                 SELECT e."ид_канала_данных", e."дата_время_события", e."тревожное_событие",
                        e."тип_значения", e."значение_число", e."значение_текст"
-                FROM ml.dataset_events e
-                JOIN ml.map_channel mc ON mc."ид_канала_данных" = e."ид_канала_данных"
-                WHERE mc."код_типа_датчика" = ANY(%s)
+                FROM {schema}.dataset_events e
+                WHERE e."тип_датчика" = ANY(%s::text[])
                   AND e."дата_время_события" >= %s AND e."дата_время_события" < %s
-                ORDER BY e."ид_канала_данных", e."дата_время_события"''', (codes, start, now))
+                ORDER BY e."ид_канала_данных", e."дата_время_события"'''.format(schema=schema),
+                (types, start, now))
             for cid, t, alarm, vt, num, txt in cur:
                 self.process_parsed(cid, t, alarm, vt, num, txt)
                 n += 1
