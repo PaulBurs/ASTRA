@@ -31,6 +31,14 @@
 .dataset-actions .dataset-primary { background: #175cd3; border-color: #175cd3; color: #fff; }
 .dataset-actions button:hover:not(:disabled), .dataset-actions a:hover, .sensors-source-actions > button:hover { border-color: #175cd3; color: #175cd3; }
 .dataset-actions .dataset-primary:hover:not(:disabled) { background: #134dab; color: #fff; }
+.dataset-actions .dataset-danger { margin-left: auto; border-color: #fecdca; color: #b42318; }
+.dataset-actions .dataset-danger:hover:not(:disabled) { border-color: #b42318; background: #fff5f3; color: #b42318; }
+.dataset-delete-confirm { margin-top: 20px; padding: 18px; border: 1px solid #fecdca; border-radius: 6px; background: #fff5f3; }
+.dataset-delete-confirm > strong { color: #912018; }
+.dataset-delete-confirm > p { margin: 8px 0 0; max-width: 720px; color: #713b35; font-size: 12px; line-height: 1.7; }
+.dataset-delete-confirm .dataset-actions { margin-top: 14px; }
+.dataset-actions .dataset-danger-confirm { border-color: #b42318; background: #b42318; color: #fff; }
+.dataset-actions .dataset-danger-confirm:hover:not(:disabled) { border-color: #912018; background: #912018; color: #fff; }
 .dataset-actions :is(button, a):focus-visible, .sensors-source-actions :is(button, summary):focus-visible { outline: 2px solid #175cd3; outline-offset: 2px; }
 .dataset-progress { margin-top: 20px; }
 .dataset-progress > div { display: flex; justify-content: space-between; gap: 16px; color: #64747f; font-size: 12px; }

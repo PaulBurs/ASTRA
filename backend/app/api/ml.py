@@ -1,6 +1,8 @@
 from uuid import UUID
 
 import httpx
+from app.db.database import engine
+from app.services.forecast_jobs import ensure_tables, save_prediction
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.dependencies import (
@@ -67,7 +69,9 @@ def predict(
         if sensor_repository.get_by_id(sensor_id) is None:
             raise HTTPException(status_code=404, detail="Sensor not found")
         try:
-            return ml_service.predict_dataset(dataset_id, sensor_id)
+            result = ml_service.predict_dataset(dataset_id, sensor_id)
+            ensure_tables(engine)
+            return save_prediction(engine, dataset_id, sensor_id, result)
         except httpx.HTTPStatusError as error:
             detail = "Не удалось получить прогноз ML"
             try:
