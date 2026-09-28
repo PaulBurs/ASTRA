@@ -1,4 +1,41 @@
 services:
+  # Empty, idempotent schema initialization. Demo rows are never seeded on start.
+  db-init:
+    image: postgres:16
+    environment:
+      PGHOST: postgres
+      PGUSER: astra
+      PGPASSWORD: astra
+      PGDATABASE: astra
+    volumes:
+      - ./sql:/sql:ro,z
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        psql -v ON_ERROR_STOP=1 -f /sql/schema/01_core_schema.sql
+        psql -v ON_ERROR_STOP=1 -f /sql/indexes/01_ext_journal_sensor_time.sql
+        psql -v ON_ERROR_STOP=1 -f /sql/indexes/02_astra_channels_catalog.sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  source-agent:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      SOURCE_CACHE_PATH: /data/cache
+      SOURCE_HOST_ROOT: ${ASTRA_SOURCE_DIR:-${ASTRA_PROJECT_DIR:-.}/DJKH_transport}
+      SOURCE_MOUNT_ROOT: /data/source
+    volumes:
+      - ${ASTRA_SOURCE_DIR:-./DJKH_transport}:/data/source:ro,z
+      - source_cache:/data/cache
+    command: ["python", "-m", "source_agent.main"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
   postgres:
     image: postgres:16
 
@@ -77,13 +114,10 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
     environment:
       DATABASE_URL: postgresql+psycopg://astra:astra@postgres:5432/astra
       
-      SOURCE_AGENT_URL: http://host.docker.internal:9100
+      SOURCE_AGENT_URL: http://source-agent:9100
 
       DATA_SOURCE: ${DATA_SOURCE:-postgres}
       ML_DATA_SOURCE: ${ML_DATA_SOURCE:-postgres}
@@ -116,6 +150,12 @@ services:
       ]
 
     depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+      source-agent:
+        condition: service_healthy
+
       postgres:
         condition: service_healthy
 
@@ -151,6 +191,13 @@ services:
       backend:
         condition: service_healthy
 
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 
 volumes:
   postgres_data:
+  source_cache:
