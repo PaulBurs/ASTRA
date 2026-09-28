@@ -203,9 +203,12 @@ class Grid:
     """Плотная сетка: для каждого канала - все часы от первого события до
     min(последнее событие + extend, конец данных). Массивы выровнены по позиции."""
 
-    def __init__(self, agg: pd.DataFrame, cfg: dict, end_h: int | None = None):
+    def __init__(self, agg: pd.DataFrame, cfg: dict, end_h: 'int | pd.Series | None' = None):
         g = agg.groupby('ch')['h'].agg(['min', 'max'])
-        global_end = int(agg['h'].max()) if end_h is None else end_h
+        if isinstance(end_h, pd.Series):          # свой конец данных у каждого канала (пакетный прогноз)
+            global_end = end_h.reindex(g.index).to_numpy('int64')
+        else:
+            global_end = int(agg['h'].max()) if end_h is None else end_h
         g['end'] = np.minimum(g['max'] + cfg['extend_after_last_h'], global_end)
         lens = (g['end'] - g['min'] + 1).to_numpy()
         self.n = int(lens.sum())
@@ -427,7 +430,7 @@ def object_features(agg: pd.DataFrame, static: pd.DataFrame, windows: list[int],
 
 
 def build_features(agg: pd.DataFrame, static: pd.DataFrame, cfg: dict,
-                   end_h: int | None = None, keep_all: bool = False, only_last: bool = False,
+                   end_h: 'int | pd.Series | None' = None, keep_all: bool = False, only_last: bool = False,
                    target_channels: list[int] | None = None,
                    object_hourly: pd.DataFrame | None = None):
     """-> (X: DataFrame признаков, meta: DataFrame ch/h/цель/вес/...,

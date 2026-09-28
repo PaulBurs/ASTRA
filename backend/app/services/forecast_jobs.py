@@ -16,7 +16,8 @@ from app.schemas.ml import MLPredictionResponse
 log = logging.getLogger(__name__)
 LOCK_ID = 418739201  # One batch per ML service, including across API processes.
 WORKERS = max(1, min(16, int(os.getenv("FORECAST_WORKERS", "4"))))
-BATCH_SIZE = max(1, min(64, int(os.getenv("FORECAST_BATCH_SIZE", "16"))))
+# ML processes a batch in one pass per object, so large object-ordered batches are cheap.
+BATCH_SIZE = max(1, min(1024, int(os.getenv("FORECAST_BATCH_SIZE", "256"))))
 
 
 def ensure_tables(engine):
