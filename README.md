@@ -214,7 +214,9 @@ ASTRA/
 - GitHub Actions
 - Linux / Fedora как основная локальная среда разработки
 
-> В проекте используется команда `docker-compose` с дефисом.
+> Скрипты проекта автоматически поддерживают оба варианта Docker Compose:
+> современный плагин `docker compose` и старую команду `docker-compose`.
+> Дополнительная shell-функция или alias не требуется.
 
 ---
 
@@ -281,8 +283,17 @@ VITE_API_URL=http://127.0.0.1:8000
 После того как образы уже существуют, обычный запуск:
 
 ```bash
-./astra.sh
+./run.sh
 ```
+
+`run.sh` и `astra.sh` сами определяют доступную команду Docker Compose. На
+Ubuntu обычно будет использован `docker compose`, на системах со старой
+установкой — `docker-compose`. Объявлять shell-функцию вручную не требуется.
+
+Для backend-тестов скрипт автоматически использует локальную PostgreSQL:
+`postgresql+psycopg://astra:astra@127.0.0.1:5432/astra`. Экспортировать
+`DATABASE_URL` перед штатным запуском не нужно; переменная окружения нужна
+только для подключения к другой базе.
 
 ---
 
@@ -297,7 +308,7 @@ astra.sh
 Обычный запуск:
 
 ```bash
-./astra.sh
+./run.sh
 ```
 
 Скрипт выполняет:
@@ -978,7 +989,7 @@ backend/.venv/bin/python -m pytest -v
 
 ```bash
 cd ..
-docker-compose up -d postgres
+docker compose up -d postgres
 ```
 
 После чего:
@@ -1376,31 +1387,31 @@ http://127.0.0.1:8000/docs
 Состояние Docker:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 Все контейнеры, включая остановленные:
 
 ```bash
-docker-compose ps -a
+docker compose ps -a
 ```
 
 Backend logs:
 
 ```bash
-docker-compose logs -f backend
+docker compose logs -f backend
 ```
 
 Frontend logs:
 
 ```bash
-docker-compose logs -f frontend
+docker compose logs -f frontend
 ```
 
 PostgreSQL logs:
 
 ```bash
-docker-compose logs -f postgres
+docker compose logs -f postgres
 ```
 
 Backend health:

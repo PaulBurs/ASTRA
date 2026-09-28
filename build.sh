@@ -9,6 +9,9 @@ ROOT_DIR="$(
 
 cd "$ROOT_DIR"
 
+# shellcheck source=scripts/docker-compose.sh
+source "$ROOT_DIR/scripts/docker-compose.sh"
+
 
 echo "======================================"
 echo " ASTRA — full project build"
@@ -21,28 +24,25 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 
-if ! command -v docker-compose >/dev/null 2>&1; then
-    echo "ERROR: docker-compose is not installed."
-    exit 1
-fi
+astra_detect_compose || exit 1
 
 
 echo
 echo "[1/6] Building Docker images..."
 
-docker-compose build
+astra_compose build
 
 
 echo
 echo "[2/6] Starting PostgreSQL..."
 
-docker-compose up -d postgres
+astra_compose up -d postgres
 
 
 echo
 echo "Waiting for PostgreSQL..."
 
-until docker-compose exec -T postgres \
+until astra_compose exec -T postgres \
     pg_isready \
     -U astra \
     -d astra \
@@ -61,12 +61,12 @@ bash sql/init-dev.sh --seed
 echo
 echo "[4/6] Starting ML service..."
 
-docker-compose up -d ml
+astra_compose up -d ml
 
 
 echo "Waiting for ML..."
 
-until docker-compose exec -T ml \
+until astra_compose exec -T ml \
     python -c \
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=2)" \
     >/dev/null 2>&1
@@ -78,14 +78,14 @@ done
 echo
 echo "[5/6] Checking ML and frontend builds..."
 
-docker-compose run \
+astra_compose run \
     --rm \
     --no-deps \
     ml \
     python -m ml.example
 
 
-docker-compose run \
+astra_compose run \
     --rm \
     --no-deps \
     frontend \
@@ -95,7 +95,7 @@ docker-compose run \
 echo
 echo "[6/6] Checking backend..."
 
-docker-compose run \
+astra_compose run \
     --rm \
     --no-deps \
     -e DATA_SOURCE=dummy \
@@ -108,7 +108,7 @@ docker-compose run \
 echo
 echo "Stopping temporary services..."
 
-docker-compose stop ml postgres >/dev/null
+astra_compose stop ml postgres >/dev/null
 
 
 echo

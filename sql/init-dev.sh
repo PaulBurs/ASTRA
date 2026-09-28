@@ -5,6 +5,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# shellcheck source=../scripts/docker-compose.sh
+source "$ROOT_DIR/scripts/docker-compose.sh"
+
 DB_USER="astra"
 DB_NAME="astra"
 
@@ -13,11 +16,11 @@ echo "================================"
 
 echo "[1/4] Starting PostgreSQL..."
 
-docker-compose up -d --no-build postgres
+astra_compose up -d --no-build postgres
 
 echo "[2/4] Waiting for PostgreSQL..."
 
-until docker-compose exec -T postgres \
+until astra_compose exec -T postgres \
     pg_isready \
     -U "$DB_USER" \
     -d "$DB_NAME" \
@@ -34,7 +37,7 @@ apply_sql() {
     echo
     echo "Applying: $file"
 
-    docker-compose exec -T postgres \
+    astra_compose exec -T postgres \
         psql \
         -v ON_ERROR_STOP=1 \
         -U "$DB_USER" \
@@ -58,7 +61,7 @@ fi
 echo
 echo "[4/4] Checking database..."
 
-docker-compose exec -T postgres \
+astra_compose exec -T postgres \
     psql \
     -U "$DB_USER" \
     -d "$DB_NAME" \
