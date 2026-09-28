@@ -51,6 +51,21 @@ class PredictionOutput(BaseModel):
     model_version: str
 
 
+class BatchPredictionInput(BaseModel):
+    sensor_ids: list[int] = Field(min_length=1, max_length=64)
+
+
+class BatchPredictionItem(BaseModel):
+    sensor_id: int
+    status: Literal['ready', 'skipped', 'error']
+    result: PredictionOutput | None = None
+    error: str | None = None
+
+
+class BatchPredictionOutput(BaseModel):
+    predictions: list[BatchPredictionItem]
+
+
 class HealthOutput(BaseModel):
     available: bool
     model_version: str
