@@ -2,7 +2,7 @@
 import csv
 import io
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import httpx
@@ -172,6 +172,39 @@ def test_ml_unavailable_can_retry_without_rebuilding(api, monkeypatch):
     response = client.post(f"/api/datasets/{id}/validate-ml")
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
+
+
+def test_confirmed_delete_removes_prepared_database_and_related_records(api):
+    client, service, ids = api
+    files, _ = source_files()
+    dataset_id = upload(client, ids, files)
+    assert client.post(f"/api/datasets/{dataset_id}/prepare").status_code == 202
+    assert client.get(f"/api/datasets/{dataset_id}").json()["status"] == "ready"
+
+    base = f"/api/datasets/{dataset_id}"
+    dispatcher = {"X-Employee-ID": "1001"}
+    assert client.get(base + "/workspace", headers=dispatcher).status_code == 200
+    prediction_service = PreparedPredictionMLService()
+    app.dependency_overrides[get_ml_service] = lambda: prediction_service
+    assert client.get(f"/api/ml/predict/196746?dataset_id={dataset_id}").status_code == 200
+    check = client.post(base + "/checks", headers=dispatcher, json={
+        "sensor_id": 196746,
+        "assignee_id": "2001",
+        "deadline": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+    })
+    assert check.status_code == 201, check.text
+
+    assert client.delete(base).status_code == 409
+    assert service.directory(dataset_id).exists()
+    assert client.delete(base + "?confirm_delete=true").status_code == 403
+    assert client.delete(base + "?confirm_delete=true", headers=dispatcher).status_code == 204
+    assert client.get(base).status_code == 404
+    assert not service.directory(dataset_id).exists()
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT to_regnamespace(:schema)"), {"schema": schema_name(dataset_id)}).scalar() is None
+        for table in ("astra_predictions", "astra_checks", "astra_check_history"):
+            count = conn.execute(text(f"SELECT count(*) FROM public.{table} WHERE dataset_id=:id"), {"id": UUID(dataset_id)}).scalar_one()
+            assert count == 0
 
 
 def test_invalid_rows_fail_without_publishing_dataset(api):

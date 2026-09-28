@@ -1,0 +1,30 @@
+.live-progress { display: grid; gap: 10px; padding: 18px 20px; margin-top: 20px; border: 1px solid #dde3e7; border-radius: 6px; background: #fff; }
+.live-progress span { color: #64747f; font-size: 12px; }
+.live-progress progress { width: 100%; height: 8px; accent-color: #175cd3; }
+.live-error { padding: 14px 16px; color: #b42318; background: #fff6f4; border: 1px solid #fecdca; border-radius: 6px; }
+.live-workspace .demo-action-buttons .live-stop-button { border-color: #fecdca; color: #b42318; }
+.live-workspace .demo-action-buttons .live-stop-button:hover:not(:disabled) { border-color: #b42318; background: #fff5f3; color: #b42318; }
+.live-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; color: #64747f; }
+.live-pagination > span:first-child { margin-right: auto; }
+.live-map-note { color: #64747f; background: #fff; border: 1px solid #dde3e7; border-radius: 6px; padding: 20px; line-height: 1.7; }
+.live-sensor-events { list-style: none; margin: 0; padding: 0; max-height: 330px; overflow-y: auto; border-top: 1px solid #e4e9ed; }
+.live-sensor-events li { display: grid; grid-template-columns: 1fr auto; gap: 5px 14px; padding: 12px 0; border-bottom: 1px solid #e4e9ed; }
+.live-sensor-events time, .live-sensor-events span { color: #64747f; font-size: 11px; }
+.live-sensor-events span { grid-column: 1 / -1; }
+.live-details-loading { display: grid; justify-items: center; gap: 16px; padding: 80px 0; text-align: center; }
+.live-workspace .demo-table td:last-child button { white-space: nowrap; }
+.live-workspace .demo-table tbody tr { cursor: default; }
+.live-workspace .demo-table tbody tr.live-sensor-row { cursor: pointer; }
+.live-workspace .demo-table tbody tr.live-sensor-row:focus-visible { outline: 2px solid #175cd3; outline-offset: -2px; }
+.application-sidebar-bottom { display: grid; gap: 24px; }
+.warnings-topbar { position: sticky; top: 0; z-index: 5; }
+.warnings-sidebar { position: sticky; top: 64px; align-self: start; height: calc(100dvh - 96px); }
+.application-status-button { border: 1px solid #dde3e7; border-radius: 5px; padding: 10px 8px; background: #fff; color: #64747f; text-align: left; font: inherit; cursor: pointer; line-height: 1.5; }
+.application-status-button:hover { color: #175cd3; background: #f7f8fa; }
+.application-status { font-family: "IBM Plex Sans", Arial, sans-serif; }
+.application-status dl { margin: 24px 0; }
+.application-status dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 18px 0; border-bottom: 1px solid #e4e9ed; }
+.application-status dd { margin: 0; }
+.status-ok { color: #28745b; }
+.status-error { color: #b42318; }
+@media(max-width:650px) { .warnings-topbar, .warnings-sidebar { position: static; } .warnings-sidebar { height: auto; } .application-sidebar-bottom { margin-top: 8px; } .application-status-button { text-align: center; } }

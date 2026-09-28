@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react"
 import {
-  createDataset, discardDataset, getDataset, prepareDataset, uploadDatasetFile,
+  createDataset, deletePreparedDataset, discardDataset, getDataset, prepareDataset, uploadDatasetFile,
   validateDatasetML, type Dataset,
 } from "../api/datasets"
 
 const SAVED_DATASET = "astra.preparedDataset"
 
 // Mounted in App so uploads and status polling survive navigation between pages.
-export function useDatasetImport(onReady: (datasetId: string) => void) {
+export function useDatasetImport(onReady: (datasetId: string) => void, employeeId = "") {
   const [files, setFiles] = useState<File[]>([])
   const [dataset, setDataset] = useState<Dataset | null>(null)
   const [busy, setBusy] = useState(false)
   const [percent, setPercent] = useState(0)
   const [currentFile, setCurrentFile] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [restoring, setRestoring] = useState(() => !!localStorage.getItem(SAVED_DATASET))
   const callback = useRef(onReady)
   useEffect(() => { callback.current = onReady }, [onReady])
   const notified = useRef<string | null>(null)
@@ -22,12 +23,14 @@ export function useDatasetImport(onReady: (datasetId: string) => void) {
   const shouldPoll = dataset?.status === "preparing" || checkingML
 
   useEffect(() => {
+    let active = true
     const id = localStorage.getItem(SAVED_DATASET)
     if (id) {
-      getDataset(id).then(setDataset).catch(() => {
-        localStorage.removeItem(SAVED_DATASET)
-      })
+      getDataset(id).then(value => { if (active) setDataset(value) }).catch(cause => {
+        if (active) setError(cause instanceof Error ? cause.message : "Не удалось открыть загруженную базу")
+      }).finally(() => { if (active) setRestoring(false) })
     }
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -111,6 +114,22 @@ export function useDatasetImport(onReady: (datasetId: string) => void) {
     } finally { setBusy(false) }
   }
 
+  async function clearDataset() {
+    if (!dataset || !["prepared", "ready"].includes(dataset.status)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await deletePreparedDataset(dataset.id, employeeId)
+      localStorage.removeItem(SAVED_DATASET)
+      notified.current = null
+      setDataset(null)
+      setFiles([])
+      setPercent(0)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось удалить базу датчиков")
+    } finally { setBusy(false) }
+  }
+
   async function retryML() {
     if (!dataset) return
     setBusy(true)
@@ -132,8 +151,8 @@ export function useDatasetImport(onReady: (datasetId: string) => void) {
   const preparing = dataset?.status === "preparing" || checkingML
 
   return {
-    files, setFiles, dataset, busy, preparing, percent, currentFile, error,
-    setError, importFiles, retryPreparation, retryML, discardUpload,
+    files, setFiles, dataset, busy, preparing, restoring, percent, currentFile, error,
+    setError, importFiles, retryPreparation, retryML, discardUpload, clearDataset,
   }
 }
 

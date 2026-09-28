@@ -14,6 +14,7 @@ from sqlalchemy import text
 from astra_pipeline.build import build_dataset
 from astra_pipeline.csv_input import detect_role
 from astra_pipeline.registry import ensure_registry, get_dataset, schema_name, update_dataset
+from app.services import forecast_jobs
 
 logger = logging.getLogger(__name__)
 GIB = 1024**3
@@ -171,16 +172,33 @@ class DatasetImportService:
             raise
         return get_dataset(self.engine, dataset_id)
 
-    def discard(self, dataset_id):
+    def discard(self, dataset_id, *, include_prepared=False):
         self.status(dataset_id)
+        if include_prepared:
+            running_forecast = forecast_jobs.latest_job(self.engine, dataset_id)
+            if running_forecast and running_forecast["status"] in {"running", "stopping"}:
+                raise HTTPException(
+                    409,
+                    "Сначала дождитесь завершения расчёта прогнозов, затем повторите удаление",
+                )
         with self.lock(dataset_id):
             job = get_dataset(self.engine, dataset_id)
-            if job["status"] not in {"uploading", "error"}:
-                raise HTTPException(409, "Можно удалить только незавершённую или неудачную загрузку")
+            allowed = {"uploading", "error"}
+            if include_prepared:
+                allowed.update({"prepared", "ready"})
+            if job["status"] not in allowed:
+                detail = (
+                    "Подтвердите полное удаление подготовленной базы"
+                    if job["status"] in {"prepared", "ready"}
+                    else "Нельзя удалить базу, пока выполняется подготовка"
+                )
+                raise HTTPException(409, detail)
             with self.engine.begin() as conn:
                 conn.execute(text(f"DROP SCHEMA IF EXISTS {schema_name(dataset_id)} CASCADE"))
                 conn.execute(text("DELETE FROM public.astra_datasets WHERE id=:id"), {"id": UUID(str(dataset_id))})
-            self.clear_uploads(dataset_id, len(job["files"]))
+        # The registry row owns checks, forecasts and prediction rows through
+        # cascading foreign keys. Remove the private uploaded-file directory too.
+        shutil.rmtree(self.directory(dataset_id), ignore_errors=True)
 
     def clear_uploads(self, dataset_id, file_count):
         for index in range(file_count):
