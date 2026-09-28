@@ -5,6 +5,8 @@
 !ml/**
 !data_pipeline/
 !data_pipeline/**
+!source_agent/
+!source_agent/**
 **/.venv
 **/__pycache__
 **/.pytest_cache
