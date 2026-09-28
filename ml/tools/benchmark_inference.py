@@ -18,7 +18,7 @@ from sqlalchemy import text
 from astra_pipeline.registry import schema_name
 from ml.djkh_model.model import build_features
 from ml.src.data import create_ml_engine
-from ml.src.inference import _load_model, _hourly_aggregates, predict_prepared_batch
+from ml.src.inference import MAX_BATCH_SENSORS, _load_model, _hourly_aggregates, predict_prepared_batch
 
 
 def reference(engine, dataset_id, sensor):
@@ -51,8 +51,8 @@ def main():
     parser.add_argument('--limit', type=int, default=16)
     parser.add_argument('--sensor-ids', type=int, nargs='+')
     args = parser.parse_args()
-    if not 1 <= args.limit <= 64:
-        parser.error('--limit must be 1..64')
+    if not 1 <= args.limit <= MAX_BATCH_SENSORS:
+        parser.error(f'--limit must be 1..{MAX_BATCH_SENSORS}')
     engine = create_ml_engine()
     try:
         ids = args.sensor_ids
@@ -66,8 +66,8 @@ def main():
                     WHERE "ид_канала_данных" IN (
                         SELECT "ид_канала_данных" FROM {schema_name(args.dataset)}.latest_sensor_events)
                     ) s ORDER BY n,ch LIMIT :limit'''), {'limit': args.limit}).scalars())
-        if not ids or len(ids) > 64:
-            raise ValueError('Expected 1..64 sensors with history')
+        if not ids or len(ids) > MAX_BATCH_SENSORS:
+            raise ValueError(f'Expected 1..{MAX_BATCH_SENSORS} sensors with history')
         _load_model()
         with contextlib.redirect_stdout(io.StringIO()):
             # Warm both paths before measuring; use the same pooled DB connection
