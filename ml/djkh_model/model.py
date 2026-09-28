@@ -399,17 +399,21 @@ def add_recurrence_features(G: 'Grid', base: dict, nanfill: dict, feats: dict, K
     RECUR_FEATURE_NAMES.update(set(feats) - before)
 
 
-def object_features(agg: pd.DataFrame, static: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
+def object_features(agg: pd.DataFrame, static: pd.DataFrame, windows: list[int],
+                    object_hourly: pd.DataFrame | None = None) -> pd.DataFrame:
     """Сумма тревог/тех.проблем/событий по объекту за окна -> для признаков «соседи»."""
-    a = agg[['ch', 'h', 'n_alarm', 'n_tech', 'n_ev', 'n_start']].merge(
-        static[['ch', 'код_объекта']], on='ch', how='left')
-    o = a.groupby(['код_объекта', 'h'], as_index=False)[['n_alarm', 'n_tech', 'n_ev', 'n_start']].sum()
+    if object_hourly is None:
+        a = agg[['ch', 'h', 'n_alarm', 'n_tech', 'n_ev', 'n_start']].merge(
+            static[['ch', 'код_объекта']], on='ch', how='left')
+        o = a.groupby(['код_объекта', 'h'], as_index=False)[['n_alarm', 'n_tech', 'n_ev', 'n_start']].sum()
+    else:
+        o = object_hourly
     o = o.sort_values(['код_объекта', 'h'])
     frames = []
     for obj, d in o.groupby('код_объекта'):
         idx = pd.RangeIndex(d['h'].min(), d['h'].max() + 720 + 1)
         d = d.set_index('h').reindex(idx, fill_value=0)
-        res = pd.DataFrame({'код_объекта': obj, 'h': idx})
+        res = {'код_объекта': obj, 'h': idx}
         for col in ('n_alarm', 'n_tech', 'n_start', 'n_ev'):
             v = d[col].to_numpy('float64')
             c = np.concatenate([[0.0], np.cumsum(v)])
@@ -418,15 +422,28 @@ def object_features(agg: pd.DataFrame, static: pd.DataFrame, windows: list[int])
                     continue
                 lo = np.maximum(np.arange(len(v)) - w + 1, 0)
                 res[f'obj_{col}_{w}h'] = (c[np.arange(len(v)) + 1] - c[lo]).astype('float32')
-        frames.append(res)
+        frames.append(pd.DataFrame(res))
     return pd.concat(frames, ignore_index=True)
 
 
 def build_features(agg: pd.DataFrame, static: pd.DataFrame, cfg: dict,
-                   end_h: int | None = None, keep_all: bool = False, only_last: bool = False):
+                   end_h: int | None = None, keep_all: bool = False, only_last: bool = False,
+                   target_channels: list[int] | None = None,
+                   object_hourly: pd.DataFrame | None = None):
     """-> (X: DataFrame признаков, meta: DataFrame ch/h/цель/вес/...,
            silence: DataFrame эпизодов молчания).
     keep_all=True - не прореживать пустые часы; only_last=True - только последний час каждого канала."""
+    # Neighbours still use the complete object history. Dense per-channel arrays
+    # only need to exist for channels whose predictions were requested.
+    object_agg = agg
+    if target_channels is not None:
+        if not only_last:
+            raise ValueError('target_channels is only supported for inference')
+        if end_h is None:
+            end_h = int(agg['h'].max())
+        agg = agg[agg['ch'].isin(target_channels)]
+        if agg.empty:
+            raise ValueError('No events for the requested channels')
     G = Grid(agg, cfg, end_h)
     log(f'сетка: {G.n:,} канал-часов, каналов {len(G.channels):,}')
     W = cfg['windows_h']
@@ -538,7 +555,7 @@ def build_features(agg: pd.DataFrame, static: pd.DataFrame, cfg: dict,
     meta['код_типа_датчика'] = X['код_типа_датчика'].to_numpy()
 
     # соседи по объекту (объект минус сам канал)
-    of = object_features(agg, static, W)
+    of = object_features(object_agg, static, W, object_hourly)
     m = pd.DataFrame({'код_объекта': X['код_объекта'].to_numpy(), 'h': meta['h'].to_numpy()})
     m = m.merge(of, on=['код_объекта', 'h'], how='left')
     for c in of.columns:

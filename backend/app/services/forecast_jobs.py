@@ -5,6 +5,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from threading import Thread
 from uuid import uuid4
+from collections import Counter
+from itertools import islice
 
 import httpx
 from sqlalchemy import text
@@ -13,7 +15,8 @@ from app.schemas.ml import MLPredictionResponse
 
 log = logging.getLogger(__name__)
 LOCK_ID = 418739201  # One batch per ML service, including across API processes.
-WORKERS = max(1, min(4, int(os.getenv("FORECAST_WORKERS", "2"))))
+WORKERS = max(1, min(16, int(os.getenv("FORECAST_WORKERS", "4"))))
+BATCH_SIZE = max(1, min(64, int(os.getenv("FORECAST_BATCH_SIZE", "16"))))
 
 
 def ensure_tables(engine):
@@ -94,6 +97,41 @@ def _predict_one(engine, ml_service, dataset_id, sensor_id):
         return "failed"
 
 
+def _predict_batch(engine, ml_service, dataset_id, sensor_ids):
+    """Persist a complete bounded batch atomically; never trust missing/extra IDs."""
+    if not callable(getattr(ml_service, "predict_dataset_batch", None)):
+        return Counter(_predict_one(engine, ml_service, dataset_id, sensor) for sensor in sensor_ids)
+    try:
+        items = ml_service.predict_dataset_batch(dataset_id, sensor_ids)["predictions"]
+        if len(items) != len(sensor_ids) or {p["sensor_id"] for p in items} != set(sensor_ids):
+            raise ValueError("ML returned incorrect batch sensor IDs")
+        rows, outcomes = [], Counter()
+        for item in items:
+            status, sensor = item["status"], item["sensor_id"]
+            if status not in {"ready", "skipped", "error"}:
+                raise ValueError("ML returned an invalid prediction status")
+            result = None
+            if status == "ready":
+                result = MLPredictionResponse.model_validate(item["result"]).model_dump()
+                if result["sensor_id"] != sensor:
+                    raise ValueError("ML returned a different sensor")
+            rows.append(dict(dataset=dataset_id, sensor=sensor, status=status,
+                             result=json.dumps(result) if result else None, error=item.get("error")))
+            outcomes[{"ready": "predicted", "skipped": "skipped", "error": "failed"}[status]] += 1
+        with engine.begin() as conn:
+            conn.execute(text('''INSERT INTO public.astra_predictions(dataset_id,sensor_id,status,result,error)
+                VALUES (:dataset,:sensor,:status,CAST(:result AS jsonb),:error)
+                ON CONFLICT(dataset_id,sensor_id) DO UPDATE SET status=excluded.status,
+                    result=excluded.result,error=excluded.error,updated_at=now()'''), rows)
+        return outcomes
+    except Exception:
+        log.exception("Prediction batch failed for dataset %s", dataset_id)
+        for sensor in sensor_ids:
+            save_prediction(engine, dataset_id, sensor, status="error",
+                            error="Не удалось рассчитать прогноз. Повторите попытку.")
+        return Counter(failed=len(sensor_ids))
+
+
 def _run(engine, lock_conn, job_id, dataset_id, sensor_ids, ml_service):
     try:
         stored = predictions(engine, dataset_id)
@@ -108,24 +146,29 @@ def _run(engine, lock_conn, job_id, dataset_id, sensor_ids, ml_service):
                                   "skipped": len(cached_skipped)}).scalar_one_or_none()
         stop_requested = state != "running"
         remaining = iter(sensor for sensor in sensor_ids if sensor not in cached)
-        # Submit only WORKERS tasks at once; 11,000 sensors do not become 11,000
-        # simultaneous HTTP requests or resident feature matrices.
+        batch_size = BATCH_SIZE if callable(getattr(ml_service, "predict_dataset_batch", None)) else 1
+        # Keep only WORKERS bounded batches in flight; stopping waits for these
+        # batches and a later run reuses their persisted results.
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
             pending = set()
             for _ in range(0 if stop_requested else WORKERS):
-                sensor = next(remaining, None)
-                if sensor is not None:
-                    pending.add(pool.submit(_predict_one, engine, ml_service, dataset_id, sensor))
+                batch = list(islice(remaining, batch_size))
+                if batch:
+                    pending.add(pool.submit(_predict_batch, engine, ml_service, dataset_id, batch))
             while pending:
                 finished, pending = wait(pending, return_when=FIRST_COMPLETED)
                 for future in finished:
-                    outcome = future.result()
+                    counts = future.result()
                     with engine.begin() as conn:
-                        state = conn.execute(text(f"UPDATE public.astra_forecast_jobs SET completed=completed+1, {outcome}={outcome}+1, updated_at=now() WHERE id=:id RETURNING status"), {"id": job_id}).scalar_one_or_none()
+                        state = conn.execute(text("UPDATE public.astra_forecast_jobs SET completed=completed+:done, "
+                            "predicted=predicted+:predicted,skipped=skipped+:skipped,failed=failed+:failed, "
+                            "updated_at=now() WHERE id=:id RETURNING status"),
+                            {"id": job_id, "done": sum(counts.values()), "predicted": counts["predicted"],
+                             "skipped": counts["skipped"], "failed": counts["failed"]}).scalar_one_or_none()
                     stop_requested = stop_requested or state != "running"
-                    sensor = None if stop_requested else next(remaining, None)
-                    if sensor is not None:
-                        pending.add(pool.submit(_predict_one, engine, ml_service, dataset_id, sensor))
+                    batch = [] if stop_requested else list(islice(remaining, batch_size))
+                    if batch:
+                        pending.add(pool.submit(_predict_batch, engine, ml_service, dataset_id, batch))
         with engine.begin() as conn:
             conn.execute(text("UPDATE public.astra_forecast_jobs SET "
                               "status=CASE WHEN status='stopping' THEN 'stopped' ELSE 'completed' END, "
