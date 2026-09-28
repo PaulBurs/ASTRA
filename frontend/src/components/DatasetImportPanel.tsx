@@ -1,3 +1,4 @@
+import { useState } from "react"
 import type { DatasetImportController } from "../hooks/useDatasetImport"
 import { navigate, routeHref } from "../state/navigation"
 import "./DatasetImportPanel.css"
@@ -15,8 +16,9 @@ const roleNames: Record<string, string> = {
 }
 
 export default function DatasetImportPanel({ controller }: { controller: DatasetImportController }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const { files, setFiles, dataset, busy, preparing, percent, currentFile, error,
-    setError, importFiles, retryPreparation, retryML, discardUpload } = controller
+    setError, importFiles, retryPreparation, retryML, discardUpload, clearDataset } = controller
   const ready = dataset?.status === "ready" || dataset?.status === "prepared"
   const allFilesUploaded = dataset?.status === "uploading"
     && dataset.files.length > 0
@@ -99,14 +101,23 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
               ? <p className="dataset-ready">Все файлы загружены. Повторная загрузка не требуется. Запустите подготовку, когда завершится обработка предыдущего набора.</p>
               : <p className="dataset-note">Загрузка файлов не завершена. Удалите этот набор перед новой загрузкой.</p>)}
             <div className="dataset-actions">
-              {ready && <a className="dataset-secondary" href={routeHref("sensors")} onClick={event => {
+              {ready && <a className="dataset-secondary" href={routeHref("warnings")} onClick={event => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-                event.preventDefault(); navigate("sensors")
+                event.preventDefault(); navigate("warnings")
               }}>Открыть датчики</a>}
               {allFilesUploaded && <button type="button" disabled={busy} onClick={() => void retryPreparation()}>Запустить подготовку</button>}
               {dataset.status === "prepared" && dataset.error && <button type="button" disabled={busy} onClick={() => void retryML()}>Повторить проверку ML</button>}
               {["uploading", "error"].includes(dataset.status) && !busy && <button type="button" onClick={() => void discardUpload()}>Удалить незавершённую загрузку</button>}
+              {ready && <button className="dataset-danger" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Очистить базу датчиков</button>}
             </div>
+            {ready && confirmDelete && <div className="dataset-delete-confirm" role="alertdialog" aria-labelledby="dataset-delete-title" aria-describedby="dataset-delete-description">
+              <strong id="dataset-delete-title">Удалить всю загруженную базу?</strong>
+              <p id="dataset-delete-description">Будут удалены датчики, события, подготовленные признаки, прогнозы, проверки и загруженные файлы. Восстановить их можно будет только повторной загрузкой таблиц.</p>
+              <div className="dataset-actions">
+                <button className="dataset-danger-confirm" type="button" disabled={busy} onClick={() => { setConfirmDelete(false); void clearDataset() }}>{busy ? "Удаление…" : "Да, удалить базу"}</button>
+                <button type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>Отмена</button>
+              </div>
+            </div>}
           </section>}
         </div>
 
