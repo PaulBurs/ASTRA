@@ -222,8 +222,9 @@ ASTRA/
 
 # Быстрый старт
 
-На компьютере нужны Docker Engine с Docker Compose и Bash. Локальные Node.js,
-npm, Python, `.venv`, PostgreSQL и curl для запуска не требуются.
+На компьютере нужен Bash. Docker Engine с Docker Compose `./astra.sh` в Linux
+установит сам, если их нет (см. ниже). Локальные Node.js, npm, Python, `.venv`
+и PostgreSQL для запуска не требуются.
 
 После клонирования репозитория из его корня выполните:
 
@@ -243,9 +244,17 @@ Docker-команды через `sudo` и при необходимости з�
 её через systemd. Для недоступного rootless/remote/Desktop context выводится ошибка:
 скрипт не переключает его на другой Docker.
 
-Если Docker ещё не установлен, установите его один раз по
-[официальной инструкции](https://docs.docker.com/engine/install/) для вашей ОС.
-Сам скрипт не устанавливает системные пакеты и не изменяет группы пользователей.
+Если Docker ещё не установлен, `./astra.sh` в Linux установит его сам:
+скачает официальный скрипт [get.docker.com](https://get.docker.com) (Ubuntu, Debian,
+Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin через `sudo`,
+включит службу `docker` и добавит пользователя в группу `docker` (без `sudo` —
+после повторного входа в систему; текущий запуск продолжится через `sudo`).
+Если Docker есть, а Docker Compose нет, скрипт установит официальный Compose plugin
+в `/usr/local/lib/docker/cli-plugins`. Для установки нужны интернет, `curl` или
+`wget` и пароль администратора.
+
+Автоустановку можно отключить: `ASTRA_AUTO_INSTALL_DOCKER=0 ./astra.sh`. В macOS
+и Windows установите [Docker Desktop](https://docs.docker.com/desktop/) вручную.
 
 После проверки готовности сервисов откроется приложение:
 

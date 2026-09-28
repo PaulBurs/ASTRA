@@ -20,7 +20,8 @@ case "$1" in
   compose)
     shift
     if [[ "$1" == version ]]; then
-      [[ ${COMPOSE_KIND:-modern} == modern || ${FAKE_LEGACY:-0} == 1 ]]; exit $?
+      [[ ${COMPOSE_KIND:-modern} == modern || ${FAKE_LEGACY:-0} == 1 \
+         || -x "${ASTRA_COMPOSE_PLUGIN_DIR:-/nonexistent}/docker-compose" ]]; exit $?
     fi
     if [[ "$1" == build && ${FAIL_BUILD:-0} == 1 ]]; then exit 23; fi
     if [[ "$1" == up && ${FAIL_UP:-0} == 1 ]]; then exit 24; fi
@@ -136,6 +137,63 @@ exec "$@"
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn('ASTRA готова:', result.stdout)
                 self.assertNotIn('Проверки ASTRA завершены успешно.', result.stdout)
+
+    def fake_downloads(self):
+        """curl: get.docker.com -> installer that puts fake docker into PATH; compose -> plugin file."""
+        (self.root / 'docker.src').write_text(DOCKER)
+        self.bin.joinpath('docker').unlink()
+        for tool in ('sh', 'rm', 'cp', 'chmod', 'mkdir', 'install'):
+            self.bin.joinpath(tool).symlink_to(shutil.which(tool))
+        self.script('curl', f'''#!/bin/bash
+printf 'curl %s\\n' "$*" >> "$FAKE_LOG"
+out="${{@: -1}}"
+case "$*" in
+  *get.docker.com*) printf 'cp "{self.root}/docker.src" "{self.bin}/docker" && chmod 755 "{self.bin}/docker"\\n' > "$out" ;;
+  *docker-compose-linux*) printf '#!/bin/bash\\n' > "$out" ;;
+  *) exit 22 ;;
+esac
+''')
+        self.script('usermod', '#!/bin/bash\nprintf "usermod %s\\n" "$*" >> "$FAKE_LOG"\n')
+
+    def test_missing_docker_is_installed_before_start(self):
+        self.fake_downloads()
+        result = self.run_script(USER='dev')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertIn('curl -fsSL https://get.docker.com', calls)
+        if os.geteuid() != 0:
+            self.assertIn('sudo sh ', calls)
+            self.assertIn('sudo usermod -aG docker dev', calls)
+        self.assertIn('systemctl enable --now docker', calls)
+        self.assertIn('compose up -d --build', calls)
+        self.assertLess(calls.index('get.docker.com'), calls.index('compose up'))
+        self.assertIn('ASTRA готова:', result.stdout)
+
+    def test_missing_docker_install_can_be_disabled(self):
+        self.fake_downloads()
+        result = self.run_script(ASTRA_AUTO_INSTALL_DOCKER='0')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('curl', self.calls())
+        self.assertIn('установите Docker Engine', result.stderr)
+
+    def test_failed_docker_install_stops_without_claiming_success(self):
+        self.fake_downloads()
+        result = self.run_script(ASTRA_DOCKER_INSTALL_URL='https://example.invalid/fail')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('compose up', self.calls())
+        self.assertNotIn('ASTRA готова:', result.stdout)
+
+    def test_missing_compose_plugin_is_installed(self):
+        self.fake_downloads()
+        (self.root / 'docker.src').unlink()
+        self.script('docker', DOCKER)
+        plugins = self.root / 'cli-plugins'
+        result = self.run_script(COMPOSE_KIND='none', ASTRA_COMPOSE_PLUGIN_DIR=str(plugins))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('releases/latest/download/docker-compose-linux-', self.calls())
+        self.assertTrue((plugins / 'docker-compose').exists())
+        self.assertNotIn('get.docker.com', self.calls())
+        self.assertIn('compose up -d --build', self.calls())
 
     def test_health_wait_has_deadline_and_diagnostics(self):
         result = self.run_script(FAKE_HEALTH='starting', ASTRA_WAIT_TIMEOUT='1')
