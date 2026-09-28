@@ -8,6 +8,9 @@ PROJECT_DIR="$(
     pwd
 )"
 
+# shellcheck source=scripts/docker-compose.sh
+source "$PROJECT_DIR/scripts/docker-compose.sh"
+
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 SOURCE_AGENT_FILE="$PROJECT_DIR/source_agent/main.py"
@@ -35,10 +38,13 @@ print_header() {
 check_dependencies() {
     echo "[1/7] Проверка инструментов..."
 
-    command -v docker-compose >/dev/null 2>&1 || {
-        echo "Ошибка: docker-compose не установлен"
+    command -v docker >/dev/null 2>&1 || {
+        echo "Ошибка: Docker не установлен"
         exit 1
     }
+
+    astra_detect_compose || exit 1
+    echo "Docker Compose: $(astra_compose_name)"
 
     command -v npm >/dev/null 2>&1 || {
         echo "Ошибка: npm не установлен"
@@ -162,14 +168,14 @@ start_database() {
 
     cd "$PROJECT_DIR"
 
-    docker-compose up -d --no-build postgres
+    astra_compose up -d --no-build postgres
 
     echo "Ожидание PostgreSQL..."
 
     local attempts=30
 
     for ((i = 1; i <= attempts; i++)); do
-        if docker-compose exec -T postgres \
+        if astra_compose exec -T postgres \
             pg_isready -U astra -d astra \
             >/dev/null 2>&1; then
 
@@ -191,6 +197,10 @@ run_backend_tests() {
     echo "[4/7] Backend tests..."
 
     cd "$BACKEND_DIR"
+
+    # Docker publishes PostgreSQL on localhost. A checked-out project can now
+    # run without a developer-specific backend/.env or manual export.
+    export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://astra:astra@127.0.0.1:5432/astra}"
 
     .venv/bin/python -m pytest -q
 
@@ -216,7 +226,7 @@ start_services() {
 
     cd "$PROJECT_DIR"
 
-    docker-compose up -d --no-build
+    astra_compose up -d --no-build
 
     echo "Docker-сервисы запущены"
 }
@@ -307,7 +317,7 @@ rebuild_project() {
 
     cd "$PROJECT_DIR"
 
-    docker-compose up \
+    astra_compose up \
         --build \
         -d
 
@@ -323,7 +333,7 @@ stop_project() {
 
     echo "Останавливаю Docker-сервисы..."
 
-    docker-compose down
+    astra_compose down
 
     stop_source_agent
 
@@ -338,7 +348,7 @@ show_status() {
     cd "$PROJECT_DIR"
 
     echo "Docker:"
-    docker-compose ps
+    astra_compose ps
 
     echo
     echo "Source Agent:"
@@ -383,7 +393,7 @@ show_logs() {
 
     cd "$PROJECT_DIR"
 
-    docker-compose logs -f
+    astra_compose logs -f
 }
 
 

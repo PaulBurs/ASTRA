@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-cd /home/burask/Projects/ASTRA || exit 1
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR" || exit 1
 
 LOG_FILE="/tmp/astra-launch.log"
 
