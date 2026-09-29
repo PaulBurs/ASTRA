@@ -14,7 +14,8 @@ class BuildSettings:
 
     @classmethod
     def from_env(cls):
-        workers = int(os.getenv("DATASET_BUILD_WORKERS", "2"))
+        value = os.getenv("DATASET_BUILD_WORKERS", "auto").strip().lower()
+        workers = auto_workers() if value in {"", "auto"} else int(value)
         memory = int(os.getenv("DATASET_WORK_MEM_MB", "64"))
         if not 1 <= workers <= 8 or not 16 <= memory <= 256:
             raise ValueError("DATASET_BUILD_WORKERS: 1–8; DATASET_WORK_MEM_MB: 16–256")
@@ -27,6 +28,18 @@ class BuildSettings:
         conn.execute("SET max_parallel_workers_per_gather = 0")
         conn.execute("SET max_parallel_maintenance_workers = 0")
         conn.execute("SET jit = off")
+
+
+def auto_workers() -> int:
+    """Default parallelism: every worker is one busy PostgreSQL backend. Use half of the
+    logical CPUs (the rest stays for the app, ML service and PostgreSQL itself), at most
+    6, and keep about 3 GB of RAM per worker for sorts and window buffers."""
+    cpus = os.cpu_count() or 2
+    try:
+        memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+    except (ValueError, OSError, AttributeError):
+        memory_gb = 8
+    return max(1, min(6, cpus // 2, int(memory_gb // 3)))
 
 
 def run_jobs(url, settings, jobs, work, completed):

@@ -7,6 +7,7 @@ from psycopg import sql
 
 from .csv_input import CHANNELS, OBJECTS, csv_rows, iter_events
 from .compact import compact_events
+from .fast_load import NeedsPythonLoader, create_helpers, drop_helpers, load_events_fast
 from .features import build_features
 from .parallel import BuildSettings
 from .registry import schema_name
@@ -45,6 +46,43 @@ def copy_references(conn, schema: str, table: str, path: Path, columns: list[str
                 copy.write_row(tuple(row[c] or None for c in columns))
 
 
+def load_events_python(conn, schema: str, file: dict, progress, counts, stage) -> int:
+    """Original row-by-row loader; used only for CSV dialects the fast loader rejects."""
+    rows = 0
+    query = sql.SQL("COPY {}.ext_journal_prepared FROM STDIN").format(sql.Identifier(schema))
+    with conn.cursor().copy(query) as copy:
+        for row in iter_events(Path(file["path"]), file["role"]):
+            copy.write_row(row)
+            rows += 1
+            if rows % 100_000 == 0:
+                progress(stage, dict(counts, source_rows=counts["source_rows"] + rows))
+    return rows
+
+
+def create_latest_events(conn, schema: str) -> None:
+    """Latest event of every channel (orphans included), one index probe per channel."""
+    conn.execute(f'''
+        CREATE TABLE {schema}.latest_sensor_events AS
+        WITH RECURSIVE channels AS (
+            SELECT min("ид_канала_данных") AS ch FROM {schema}.event_storage
+            UNION ALL
+            SELECT (SELECT min(e."ид_канала_данных") FROM {schema}.event_storage e
+                    WHERE e."ид_канала_данных" > channels.ch)
+            FROM channels WHERE channels.ch IS NOT NULL
+        )
+        SELECT last.* FROM channels
+        CROSS JOIN LATERAL (
+            SELECT * FROM {schema}.ext_journal_prepared j
+            WHERE j."ид_канала_данных" = channels.ch
+            ORDER BY j."дата_время_события" DESC, j."ид_события" DESC,
+                     j."значение_датчика_raw", j."тревожное_raw"
+            LIMIT 1
+        ) last
+        WHERE channels.ch IS NOT NULL
+    ''')
+    conn.execute(f'CREATE UNIQUE INDEX ON {schema}.latest_sensor_events ("ид_канала_данных")')
+
+
 def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
     schema = schema_name(dataset_id)
     settings = BuildSettings.from_env()
@@ -57,24 +95,21 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             settings.configure(conn)
             staging = (SQL_ROOT / "00_create_journal.sql").read_text(encoding="utf-8")
             execute_script(conn, staging.replace("CREATE TABLE", "CREATE UNLOGGED TABLE"), schema)
-            latest = {}
-            source_years = set()
-            for file in files:
-                if file["role"] not in {"events", "prepared_events"}:
-                    continue
+            create_helpers(conn, schema)
+            events = [file for file in files if file["role"] in {"events", "prepared_events"}]
+            for number, file in enumerate(events):
                 stage = "Обработка " + file["name"]
                 progress(stage, counts)
-                query = sql.SQL("COPY {}.ext_journal_prepared FROM STDIN").format(sql.Identifier(schema))
-                with conn.cursor().copy(query) as copy:
-                    for row in iter_events(Path(file["path"]), file["role"]):
-                        copy.write_row(row)
-                        counts["source_rows"] += 1
-                        source_years.add(row[4].year)
-                        old = latest.get(row[1])
-                        if old is None or (row[4], row[0]) > (old[4], old[0]):
-                            latest[row[1]] = row
-                        if counts["source_rows"] % 100_000 == 0:
-                            progress(stage, counts)
+                try:
+                    rows = load_events_fast(conn, url, schema, settings, Path(file["path"]), file["role"],
+                                            number, progress, counts, stage)
+                except NeedsPythonLoader:
+                    rows = load_events_python(conn, schema, file, progress, counts, stage)
+                counts["source_rows"] += rows
+                progress(stage, counts)
+            drop_helpers(conn, schema)
+            source_years = {year for year in range(2019, 2027) if conn.execute(
+                f"SELECT EXISTS (SELECT 1 FROM {schema}.ext_journal_prepared_{year})").fetchone()[0]}
             if not counts["source_rows"]:
                 raise ValueError("Выбранные журналы не содержат событий")
 
@@ -117,11 +152,7 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             counts["channels"] = conn.execute(f"SELECT count(*) FROM {schema}.ref_channels").fetchone()[0]
             counts["objects"] = conn.execute(f"SELECT count(*) FROM {schema}.ref_objects").fetchone()[0]
             progress("Подготовка доступа приложения к данным", counts)
-            conn.execute(f"CREATE TABLE {schema}.latest_sensor_events AS SELECT * FROM {schema}.ext_journal_prepared WITH NO DATA")
-            with conn.cursor().copy(f"COPY {schema}.latest_sensor_events FROM STDIN") as copy:
-                for row in latest.values():
-                    copy.write_row(row)
-            conn.execute(f'CREATE UNIQUE INDEX ON {schema}.latest_sensor_events ("ид_канала_данных")')
+            create_latest_events(conn, schema)
         except BaseException:
             # This UUID schema belongs only to the failed import. Previously ready
             # datasets and the app's public tables are never replaced or truncated.
