@@ -46,9 +46,6 @@ services:
       POSTGRES_USER: astra
       POSTGRES_PASSWORD: astra
 
-    ports:
-      - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -73,9 +70,6 @@ services:
       ML_FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
-
-    ports:
-      - "9000:9000"
 
     volumes:
       - ./ml:/app/ml:Z
@@ -134,7 +128,8 @@ services:
       DATASET_STORAGE_EXPANSION_FACTOR: ${DATASET_STORAGE_EXPANSION_FACTOR:-8}
 
     ports:
-      - "8000:8000"
+      # Docker selects a free loopback port; astra.sh prints the resulting URL.
+      - "127.0.0.1::8000"
 
     volumes:
       - ./backend/app:/app/app:Z
@@ -182,10 +177,12 @@ services:
       context: ./frontend
 
     environment:
-      VITE_API_URL: http://127.0.0.1:8000
+      # Browser requests stay on the frontend origin; Vite proxies /api to backend.
+      VITE_API_URL: ""
 
     ports:
-      - "5173:5173"
+      # Docker selects a free loopback port; astra.sh opens the resulting URL.
+      - "127.0.0.1::5173"
 
     volumes:
       - ./frontend/src:/app/src:Z
