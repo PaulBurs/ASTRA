@@ -62,6 +62,7 @@ def fixtures(tmp_path):
 @pytest.mark.parametrize("workers", [1, 2])
 def test_exact_equivalence(tmp_path, monkeypatch, workers):
     monkeypatch.setenv("DATASET_BUILD_WORKERS", str(workers))
+    monkeypatch.setenv("DATASET_FEATURE_DAYS", "all")      # the reference SQL computes every row
     monkeypatch.setattr("astra_pipeline.features.MIN_TASK_ROWS", 1)
     files = fixtures(tmp_path)
     ids = [uuid4(), uuid4()]
@@ -84,6 +85,54 @@ def test_exact_equivalence(tmp_path, monkeypatch, workers):
                 WHERE n.nspname=%s AND c.relpersistence='u' ''', (schemas[1],)).fetchone()[0] == 0
         finally:
             for schema in schemas:
+                conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+# Last event of every channel: 2026-12-31 23:59:59. These cutoffs fall right at the 1/7/30/90-day
+# window edges before 2024-01-01 (so the kept rows need the buffer and the previous event before it),
+# inside 2024 and inside the last year.
+def silence_after(files, channel, moment):
+    """The channel stops reporting at `moment` (its later events are removed)."""
+    path = next(file["path"] for file in files if file["role"] == "events")
+    with open(path, encoding="utf-8", newline="") as source:
+        rows = list(csv.reader(source))
+    kept = [rows[0]] + [row for row in rows[1:] if not (int(row[1]) == channel
+                        and datetime.fromisoformat(f"{row[2]} {row[3]}") > moment)]
+    with open(path, "w", encoding="utf-8", newline="") as output:
+        csv.writer(output).writerows(kept)
+
+
+@pytest.mark.parametrize("days,silent", [(1106, False), (1125, False), (1185, False), (1186, False),
+                                         (900, False), (200, False), (200, True)])
+def test_recent_features_equal_the_full_run(tmp_path, monkeypatch, days, silent):
+    monkeypatch.setenv("DATASET_BUILD_WORKERS", "2")
+    monkeypatch.setattr("astra_pipeline.features.MIN_TASK_ROWS", 1)
+    files = fixtures(tmp_path)
+    if silent:   # a channel that fell silent long ago: its forecast counts its neighbours back then
+        silence_after(files, 10000, datetime(2024, 1, 1, 0, 1))
+    ids = [uuid4(), uuid4()]
+    full, recent = [schema_name(id) for id in ids]
+    url = engine.url.set(drivername="postgresql").render_as_string(hide_password=False)
+    with psycopg.connect(url, autocommit=True) as conn:
+        try:
+            monkeypatch.setenv("DATASET_FEATURE_DAYS", "all")
+            build_dataset(engine, ids[0], files, lambda *args: None)
+            monkeypatch.setenv("DATASET_FEATURE_DAYS", str(days))
+            counts = build_dataset(engine, ids[1], files, lambda *args: None)
+            assert counts["feature_days"] == days
+            if silent:
+                latest = conn.execute(f'''SELECT max(cutoff) FROM {recent}.feature_cutoff''').fetchone()[0]
+                assert latest <= datetime(2024, 1, 1, 0, 1) - timedelta(days=32)
+            expected = f'''SELECT d.* FROM {full}.dataset_ml d JOIN {recent}.feature_cutoff f
+                ON f.ch = d."ид_канала_данных" WHERE d."дата_время_события" >= f.cutoff'''
+            kept = conn.execute(f"SELECT count(*) FROM ({expected}) x").fetchone()[0]
+            assert 0 < kept < conn.execute(f"SELECT count(*) FROM {full}.dataset_ml").fetchone()[0]
+            assert counts["feature_rows"] == kept
+            for a, b in ((expected, f"SELECT * FROM {recent}.dataset_ml"),
+                         (f"SELECT * FROM {recent}.dataset_ml", expected)):
+                assert conn.execute(f"SELECT count(*) FROM ({a} EXCEPT ALL {b}) x").fetchone()[0] == 0
+        finally:
+            for schema in (full, recent):
                 conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 

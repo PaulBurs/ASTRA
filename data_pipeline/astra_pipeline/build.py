@@ -98,7 +98,8 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
                 (SQL_ROOT / "03_ml_features.sql").read_text(encoding="utf-8"),
                 execute_script, progress, counts,
             )
-            if counts["feature_rows"] != counts["event_rows"]:
+            # all clean events, or the clean events from each channel's feature cutoff on
+            if counts["feature_rows"] != counts.pop("feature_expected", counts["event_rows"]):
                 raise ValueError("Число ML-строк не совпало с числом событий. Проверьте совместимость справочников с кодами модели")
             counts["channels"] = conn.execute(f"SELECT count(*) FROM {schema}.ref_channels").fetchone()[0]
             counts["objects"] = conn.execute(f"SELECT count(*) FROM {schema}.ref_objects").fetchone()[0]

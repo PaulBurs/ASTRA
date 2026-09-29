@@ -95,6 +95,18 @@ class SQLInferenceTest(unittest.TestCase):
             again = predict_prepared_batch(dataset, [1, 2], engine=self.engine).predictions[0].result
             self.assertEqual(first, again)
 
+    def test_history_longer_than_prepared_features_is_refused(self):
+        from astra_pipeline.registry import get_dataset, update_dataset
+        counts = get_dataset(self.engine, self.dataset).get("counts") or {}
+        update_dataset(self.engine, self.dataset, counts={**counts, "feature_days": 100})
+        try:
+            with self.assertRaisesRegex(ValueError, "DATASET_FEATURE_DAYS"):
+                predict_prepared_batch(self.dataset, [1], engine=self.engine, history_days=120)
+            self.assertEqual(predict_prepared_batch(self.dataset, [1], engine=self.engine,
+                                                    history_days=90).predictions[0].status, 'ready')
+        finally:
+            update_dataset(self.engine, self.dataset, counts=counts)
+
     def test_worker_single_and_batch_share_results_and_skip_missing_history(self):
         single = run_prediction(self.dataset, [1], single=True)
         batch = run_prediction(self.dataset, [1, 9000, 9001, 9999])
