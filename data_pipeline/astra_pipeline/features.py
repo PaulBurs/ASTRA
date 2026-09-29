@@ -4,11 +4,15 @@ Do not reimplement the formulas: extract the INSERTs from the team's versioned
 script. Splitting by entire channels preserves window history and timestamp peers.
 """
 from dataclasses import dataclass
+import os
 import re
 
-from .parallel import run_jobs
+from .parallel import run_jobs, set_autovacuum
 
 MIN_TASK_ROWS = 100_000
+# ~1M rows per task: its sort fits in work_mem instead of spilling to disk, and many
+# similar tasks keep all workers busy until the end.
+TASK_ROWS = int(os.getenv("DATASET_FEATURE_TASK_ROWS", "1000000"))
 
 
 @dataclass(frozen=True)
@@ -44,7 +48,8 @@ def feature_plan(script):
 
 
 def channel_batches(channel_counts, workers):
-    count = min(workers, max(1, sum(channel_counts.values()) // MIN_TASK_ROWS))
+    rows = sum(channel_counts.values())
+    count = max(min(workers, max(1, rows // MIN_TASK_ROWS)), -(-rows // TASK_ROWS))
     batches, weights = [[] for _ in range(count)], [0] * count
     for channel, rows in sorted(channel_counts.items(), key=lambda item: (-item[1], item[0])):
         target = min(range(count), key=lambda i: weights[i])
@@ -56,6 +61,7 @@ def channel_batches(channel_counts, workers):
 def build_features(conn, url, schema, settings, inventory, script, execute, progress, counts):
     setup, blocks, finish = feature_plan(script)
     execute(conn, setup, schema)
+    set_autovacuum(conn, schema, False)
     settings.configure(conn)
     conn.execute(f"ANALYZE {schema}.map_channel")
     codes = dict(conn.execute(f'SELECT "ид_канала_данных", "код_типа_датчика" FROM {schema}.map_channel'))
@@ -63,7 +69,9 @@ def build_features(conn, url, schema, settings, inventory, script, execute, prog
     for block in blocks:
         channels = {ch: n for ch, n in inventory.get(block.year, {}).items() if codes.get(ch) in block.codes}
         for batch in channel_batches(channels, settings.workers):
-            jobs.append((block, batch))
+            jobs.append((sum(channels[ch] for ch in batch), block, batch))
+    # Largest jobs first: small ones fill the gaps instead of big ones finishing last.
+    jobs = [(block, batch) for _, block, batch in sorted(jobs, key=lambda job: -job[0])]
     done, total_rows = 0, 0
 
     def calculate(worker, job):
@@ -90,5 +98,6 @@ def build_features(conn, url, schema, settings, inventory, script, execute, prog
     progress(f"Расчёт ML-признаков: 0 из {len(jobs)} блоков", counts)
     run_jobs(url, settings, jobs, calculate, finished)
     progress("Индексирование ML-признаков", counts)
+    settings.configure_indexing(conn)
     execute(conn, finish, schema)
     return total_rows
