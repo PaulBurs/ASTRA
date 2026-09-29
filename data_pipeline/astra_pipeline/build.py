@@ -5,10 +5,11 @@ import sys
 import psycopg
 from psycopg import sql
 
-from .csv_input import CHANNELS, OBJECTS, csv_rows, iter_events
+from .csv_input import CHANNELS, OBJECTS, csv_rows
 from .compact import compact_events
 from .features import build_features
-from .parallel import BuildSettings
+from .ingest import load_events
+from .parallel import BuildSettings, set_autovacuum
 from .registry import schema_name
 
 SQL_ROOT = Path(__file__).resolve().parents[1] / "sql"
@@ -57,24 +58,9 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             settings.configure(conn)
             staging = (SQL_ROOT / "00_create_journal.sql").read_text(encoding="utf-8")
             execute_script(conn, staging.replace("CREATE TABLE", "CREATE UNLOGGED TABLE"), schema)
-            latest = {}
-            source_years = set()
-            for file in files:
-                if file["role"] not in {"events", "prepared_events"}:
-                    continue
-                stage = "Обработка " + file["name"]
-                progress(stage, counts)
-                query = sql.SQL("COPY {}.ext_journal_prepared FROM STDIN").format(sql.Identifier(schema))
-                with conn.cursor().copy(query) as copy:
-                    for row in iter_events(Path(file["path"]), file["role"]):
-                        copy.write_row(row)
-                        counts["source_rows"] += 1
-                        source_years.add(row[4].year)
-                        old = latest.get(row[1])
-                        if old is None or (row[4], row[0]) > (old[4], old[0]):
-                            latest[row[1]] = row
-                        if counts["source_rows"] % 100_000 == 0:
-                            progress(stage, counts)
+            set_autovacuum(conn, schema, False)
+            # Journals are parsed by several processes in parallel (see ingest.py).
+            latest, source_years = load_events(conn, url, schema, files, settings.workers, progress, counts)
             if not counts["source_rows"]:
                 raise ValueError("Выбранные журналы не содержат событий")
 
@@ -122,6 +108,7 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
                 for row in latest.values():
                     copy.write_row(row)
             conn.execute(f'CREATE UNIQUE INDEX ON {schema}.latest_sensor_events ("ид_канала_данных")')
+            set_autovacuum(conn, schema, True)
         except BaseException:
             # This UUID schema belongs only to the failed import. Previously ready
             # datasets and the app's public tables are never replaced or truncated.
