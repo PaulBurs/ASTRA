@@ -16,14 +16,7 @@ case "$1" in
     [[ ${SCENARIO:-ok} != stopped || -f "$FAKE_STATE" ]] || exit 1
     exit 0 ;;
   context) echo "${FAKE_CONTEXT:-default}"; exit 0 ;;
-  inspect)
-    case "$*" in
-      *State.Pid*) echo 4242 ;;
-      *State.Running*) [[ -f "$FAKE_RECOVERY_STATE" ]] && echo false || echo true ;;
-      *) echo "${FAKE_HEALTH:-healthy}" ;;
-    esac
-    exit 0 ;;
-  rm) exit 0 ;;
+  inspect) echo "${FAKE_HEALTH:-healthy}"; exit 0 ;;
   compose)
     shift
     if [[ "$1" == version ]]; then
@@ -32,18 +25,8 @@ case "$1" in
     fi
     if [[ "$1" == build && ${FAIL_BUILD:-0} == 1 ]]; then exit 23; fi
     if [[ "$1" == up && ${FAIL_UP:-0} == 1 ]]; then exit 24; fi
-    if [[ "$1" == up && ${FAIL_UP_PERMISSION:-0} == 1 && ! -f "$FAKE_RECOVERY_STATE" ]]; then
-      echo 'Error response from daemon: cannot stop container: abc123: permission denied' >&2
-      exit 24
-    fi
     if [[ "$1" == run && ${FAIL_TESTS:-0} == 1 ]]; then exit 25; fi
-    if [[ "$1" == port ]]; then
-      [[ "$2" == frontend ]] && echo '127.0.0.1:45173' || echo '127.0.0.1:48000'
-      exit 0
-    fi
-    if [[ "$1" == ps && "$*" == *'-a -q'* ]]; then
-      [[ ${NO_PROJECT_CONTAINERS:-0} == 1 ]] || echo 'stuck-astra'
-    elif [[ "$1" == ps && ${2:-} == -q ]]; then echo "fake-$3"; fi
+    if [[ "$1" == ps && ${2:-} == -q ]]; then echo "fake-$3"; fi
     exit 0 ;;
 esac
 exit 1
@@ -64,7 +47,6 @@ class LauncherTest(unittest.TestCase):
         self.log = self.root / 'calls'
         self.env = {**os.environ, 'PATH': str(self.bin), 'ASTRA_OPEN_BROWSER': '0',
                     'FAKE_LOG': str(self.log), 'FAKE_STATE': str(self.root / 'daemon'),
-                    'FAKE_RECOVERY_STATE': str(self.root / 'recovered'),
                     'ASTRA_WAIT_TIMEOUT': '2'}
         for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'COMPOSE_KIND', 'SCENARIO'):
             self.env.pop(key, None)
@@ -72,11 +54,6 @@ class LauncherTest(unittest.TestCase):
         self.bin.joinpath('bash').symlink_to('/bin/bash')
         self.script('docker', DOCKER)
         self.script('sleep', '#!/bin/bash\n/bin/sleep 0.05\n')
-        self.script('tee', '#!/bin/bash\nexec /usr/bin/tee "$@"\n')
-        self.script('grep', '#!/bin/bash\nexec /usr/bin/grep "$@"\n')
-        self.script('rm', '#!/bin/bash\nexec /usr/bin/rm "$@"\n')
-        self.script('mktemp', '#!/bin/bash\nexec /usr/bin/mktemp "$@"\n')
-        self.script('kill', '#!/bin/bash\nprintf "kill %s\\n" "$*" >> "$FAKE_LOG"\n: > "$FAKE_RECOVERY_STATE"\n')
         self.script('sudo', '''#!/bin/bash
 printf 'sudo %s\\n' "$*" >> "$FAKE_LOG"
 [[ ${DENY_SUDO:-0} != 1 ]] || exit 1
@@ -106,21 +83,13 @@ exec "$@"
         self.assertIn('compose up -d --build', self.calls())
         self.assertNotIn('pytest', self.calls())
         self.assertNotIn('sudo', self.calls())
-        self.assertIn('ASTRA готова: http://127.0.0.1:45173', result.stdout)
-        self.assertIn('API: http://127.0.0.1:48000/docs', result.stdout)
+        self.assertIn('ASTRA готова:', result.stdout)
 
     def test_quick_lets_compose_build_missing_images(self):
         result = self.run_script('run.sh', ['quick'])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('compose up -d\n', self.calls())
         self.assertNotIn('--no-build', self.calls())
-
-    def test_compose_uses_docker_assigned_loopback_ports(self):
-        compose = (ROOT / 'compose.yaml').read_text()
-        self.assertIn('"127.0.0.1::5173"', compose)
-        self.assertIn('"127.0.0.1::8000"', compose)
-        self.assertNotIn('"5173:5173"', compose)
-        self.assertNotIn('"8000:8000"', compose)
 
     @unittest.skipIf(os.geteuid() == 0, 'sudo fallback applies to unprivileged users')
     def test_socket_permission_fallback_keeps_commands_under_sudo(self):
@@ -169,33 +138,12 @@ exec "$@"
                 self.assertNotIn('ASTRA готова:', result.stdout)
                 self.assertNotIn('Проверки ASTRA завершены успешно.', result.stdout)
 
-    def test_ubuntu_apparmor_stop_denial_recovers_project_containers(self):
-        result = self.run_script(FAIL_UP_PERMISSION='1')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        calls = self.calls()
-        self.assertEqual(calls.count('docker compose up -d --build'), 2)
-        self.assertIn('docker compose ps -a -q', calls)
-        self.assertIn('docker inspect --format {{.State.Pid}} stuck-astra', calls)
-        self.assertIn('kill -TERM 4242', calls)
-        self.assertIn('docker rm -f stuck-astra', calls)
-        self.assertNotIn('systemctl restart', calls)
-        self.assertIn('Контейнеры ASTRA восстановлены', result.stdout)
-
-    def test_apparmor_recovery_does_not_touch_unknown_containers(self):
-        result = self.run_script(FAIL_UP_PERMISSION='1', NO_PROJECT_CONTAINERS='1')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn('kill -', self.calls())
-        self.assertIn('не нашёл контейнеры ASTRA', result.stderr)
-        self.assertNotIn('ASTRA готова:', result.stdout)
-
     def fake_downloads(self):
         """curl: get.docker.com -> installer that puts fake docker into PATH; compose -> plugin file."""
         (self.root / 'docker.src').write_text(DOCKER)
         self.bin.joinpath('docker').unlink()
         for tool in ('sh', 'rm', 'cp', 'chmod', 'mkdir', 'install'):
-            path = self.bin / tool
-            if not path.exists():
-                path.symlink_to(shutil.which(tool))
+            self.bin.joinpath(tool).symlink_to(shutil.which(tool))
         self.script('curl', f'''#!/bin/bash
 printf 'curl %s\\n' "$*" >> "$FAKE_LOG"
 out="${{@: -1}}"

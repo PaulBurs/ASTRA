@@ -46,6 +46,9 @@ services:
       POSTGRES_USER: astra
       POSTGRES_PASSWORD: astra
 
+    ports:
+      - "5432:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -70,6 +73,9 @@ services:
       ML_FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
+
+    ports:
+      - "9000:9000"
 
     volumes:
       - ./ml:/app/ml:Z
@@ -122,14 +128,13 @@ services:
       FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
       FORECAST_BATCH_SIZE: ${FORECAST_BATCH_SIZE:-256}
       DATASET_UPLOAD_DIR: /data/uploads
-      # empty = half of the CPU threads (2..8)
+      # empty = available CPU cores (2..8)
       DATASET_BUILD_WORKERS: ${DATASET_BUILD_WORKERS:-}
       DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-128}
       DATASET_STORAGE_EXPANSION_FACTOR: ${DATASET_STORAGE_EXPANSION_FACTOR:-8}
 
     ports:
-      # Docker selects a free loopback port; astra.sh prints the resulting URL.
-      - "127.0.0.1::8000"
+      - "8000:8000"
 
     volumes:
       - ./backend/app:/app/app:Z
@@ -177,12 +182,10 @@ services:
       context: ./frontend
 
     environment:
-      # Browser requests stay on the frontend origin; Vite proxies /api to backend.
-      VITE_API_URL: ""
+      VITE_API_URL: http://127.0.0.1:8000
 
     ports:
-      # Docker selects a free loopback port; astra.sh opens the resulting URL.
-      - "127.0.0.1::5173"
+      - "5173:5173"
 
     volumes:
       - ./frontend/src:/app/src:Z
