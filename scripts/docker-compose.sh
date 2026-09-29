@@ -262,6 +262,36 @@ astra_remove_stale_recreates() {
     done
 }
 
+# firewalld rejects forwarded packets on interfaces outside its zones ("reject with icmpx
+# admin-prohibited"); with br_netfilter this includes traffic between containers of one
+# network, seen as "No route to host". Docker puts its bridges into the "docker" zone, but a
+# snap Docker or a firewalld reload can leave the ASTRA bridge outside every zone. Put it into
+# the "docker" zone (or "trusted"). Runtime only: the bridge name changes whenever the network
+# is recreated, and every start checks again. Returns 0 only if a bridge was added.
+astra_firewalld_allow_bridge() {
+    local container_id="" networks="" network="" network_id="" bridge="" zones zone=trusted
+    [[ "${ASTRA_AUTO_REPAIR_DOCKER:-1}" == 1 ]] || return 1
+    command -v firewall-cmd >/dev/null 2>&1 || return 1
+    astra_as_root firewall-cmd --state >/dev/null 2>&1 || return 1
+    read -r container_id < <(astra_compose ps -a -q 2>/dev/null) || true
+    [[ -n "$container_id" ]] || return 1
+    networks="$(astra_docker inspect --format '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{end}}' \
+        "$container_id" 2>/dev/null || true)"
+    read -r network _ <<< "$networks" || true
+    [[ -n "$network" ]] || return 1
+    network_id="$(astra_docker network inspect --format '{{.Id}}' "$network" 2>/dev/null || true)"
+    [[ -n "$network_id" ]] || return 1
+    bridge="$(astra_docker network inspect --format '{{index .Options "com.docker.network.bridge.name"}}' \
+        "$network" 2>/dev/null || true)"
+    [[ -n "$bridge" && "$bridge" != "<no value>" ]] || bridge="br-${network_id:0:12}"
+    # already in some zone (e.g. Docker registered it): nothing to do
+    astra_as_root firewall-cmd --get-zone-of-interface="$bridge" >/dev/null 2>&1 && return 1
+    zones="$(astra_as_root firewall-cmd --get-zones 2>/dev/null || true)"
+    [[ " $zones " == *" docker "* ]] && zone=docker
+    echo "firewalld блокирует сеть ASTRA ($bridge): добавляю её в зону firewalld «$zone»."
+    astra_as_root firewall-cmd --zone="$zone" --add-interface="$bridge" >/dev/null || return 1
+}
+
 # Run a Compose mutation and retry it once after the exact Docker/AppArmor stop
 # failure. Output remains live because image builds can take several minutes.
 astra_compose_with_recovery() {

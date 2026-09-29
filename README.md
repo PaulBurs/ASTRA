@@ -265,6 +265,15 @@ container`). `./astra.sh` восстанавливает контейнеры п
 перед запуском он удаляет остановленные контейнеры с временными именами вида
 `5a6011bb9d2f_astra-source-agent-1`, оставшиеся от прерванного пересоздания.
 
+Если в системе работает firewalld, он отклоняет пакеты на интерфейсах вне своих зон — при
+`net.bridge.bridge-nf-call-iptables=1` даже между контейнерами одной сети
+(`psql: ... No route to host` в `db-init`). Docker обычно сам добавляет свои мосты в зону
+firewalld `docker`, но Docker из snap или перезагрузка firewalld могут оставить мост сети ASTRA
+вне зон. `./astra.sh` проверяет это при каждом запуске и добавляет мост (`br-<id сети>`) в зону
+`docker` (или `trusted`, если её нет) до перезагрузки firewalld; если сеть создана этим же
+запуском и `db-init` упал, настройка выполняется и запуск повторяется. Вручную:
+`sudo firewall-cmd --zone=docker --add-interface=br-<id>`.
+
 Если Docker ещё не установлен, `./astra.sh` в Linux установит его сам:
 скачает официальный скрипт [get.docker.com](https://get.docker.com) (Ubuntu, Debian,
 Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin через `sudo`,
