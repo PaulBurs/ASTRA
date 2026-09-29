@@ -16,7 +16,30 @@ from app.schemas.ml import MLPredictionResponse
 log = logging.getLogger(__name__)
 LOCK_ID = 418739201  # One batch per ML service, including across API processes.
 WORKERS = max(1, min(16, int(os.getenv("FORECAST_WORKERS", "4"))))
-BATCH_SIZE = max(1, min(64, int(os.getenv("FORECAST_BATCH_SIZE", "16"))))
+# ML processes a batch in one pass per object, so large object-ordered batches are cheap.
+BATCH_SIZE = max(1, min(1024, int(os.getenv("FORECAST_BATCH_SIZE", "256"))))
+
+
+PREPARING_MESSAGE = "Идёт подготовка данных. Прогноз можно запустить после её завершения."
+RUNNING_MESSAGE = ("Идёт расчёт прогнозов. Остановите его или дождитесь завершения, "
+                   "затем запустите подготовку данных.")
+
+
+def preparing(engine) -> bool:
+    """Inference and data preparation compete for the same PostgreSQL; never run both."""
+    with engine.connect() as conn:
+        return bool(conn.execute(text(
+            "SELECT EXISTS (SELECT 1 FROM public.astra_datasets WHERE status='preparing')")).scalar())
+
+
+def running(engine) -> bool:
+    """A live batch holds LOCK_ID for its whole duration (released if its process dies)."""
+    with engine.connect() as conn:
+        free = conn.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": LOCK_ID}).scalar()
+        if free:
+            conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_ID})
+        conn.commit()
+    return not free
 
 
 def ensure_tables(engine):
@@ -195,6 +218,12 @@ def start_job(engine, dataset_id, sensor_ids, ml_service):
         if previous and previous["status"] in {"running", "stopping"}:
             return previous
         raise ValueError("Уже рассчитывается прогноз другого набора данных. Дождитесь завершения.")
+    # Checked after taking the lock: a preparation started later sees the lock and refuses.
+    if preparing(engine):
+        lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_ID})
+        lock_conn.commit()
+        lock_conn.close()
+        raise ValueError(PREPARING_MESSAGE)
     try:
         job_id = uuid4()
         with engine.begin() as conn:

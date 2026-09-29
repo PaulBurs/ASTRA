@@ -2,6 +2,7 @@ from uuid import UUID
 
 import httpx
 from app.db.database import engine
+from app.services import forecast_jobs
 from app.services.forecast_jobs import ensure_tables, save_prediction
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -66,6 +67,8 @@ def predict(
     ),
 ):
     if dataset_id is not None:
+        if forecast_jobs.preparing(engine):
+            raise HTTPException(409, forecast_jobs.PREPARING_MESSAGE)
         if sensor_repository.get_by_id(sensor_id) is None:
             raise HTTPException(status_code=404, detail="Sensor not found")
         try:

@@ -52,7 +52,8 @@ class PredictionOutput(BaseModel):
 
 
 class BatchPredictionInput(BaseModel):
-    sensor_ids: list[int] = Field(min_length=1, max_length=64)
+    # the service checks ML_MAX_BATCH_SENSORS (default 1024); this is the hard upper bound
+    sensor_ids: list[int] = Field(min_length=1, max_length=4096)
 
 
 class BatchPredictionItem(BaseModel):
