@@ -32,6 +32,10 @@ case "$1" in
     fi
     if [[ "$1" == build && ${FAIL_BUILD:-0} == 1 ]]; then exit 23; fi
     if [[ "$1" == up && ${FAIL_UP:-0} == 1 ]]; then exit 24; fi
+    if [[ "$1" == up && ${FAIL_DB_INIT:-0} == 1 ]]; then
+      echo 'service "db-init" did not complete successfully: exit 2' >&2
+      exit 2
+    fi
     if [[ "$1" == up && ${FAIL_UP_PERMISSION:-0} == 1 && ! -f "$FAKE_RECOVERY_STATE" ]]; then
       echo 'Error response from daemon: cannot stop container: abc123: permission denied' >&2
       exit 24
@@ -104,6 +108,9 @@ exec "$@"
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('compose up -d --build', self.calls())
+        self.assertIn('compose rm -sf db-init', self.calls())
+        self.assertLess(self.calls().index('compose rm -sf db-init'),
+                        self.calls().index('compose up -d --build'))
         self.assertNotIn('pytest', self.calls())
         self.assertNotIn('sudo', self.calls())
         self.assertIn('ASTRA готова: http://127.0.0.1:45173', result.stdout)
@@ -168,6 +175,14 @@ exec "$@"
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn('ASTRA готова:', result.stdout)
                 self.assertNotIn('Проверки ASTRA завершены успешно.', result.stdout)
+
+    def test_db_init_failure_prints_service_diagnostics(self):
+        result = self.run_script(FAIL_DB_INIT='1')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('compose ps -a', self.calls())
+        self.assertIn('compose logs --no-color --tail=100 db-init postgres', self.calls())
+        self.assertIn('Журнал инициализации базы данных', result.stderr)
+        self.assertNotIn('ASTRA готова:', result.stdout)
 
     def test_ubuntu_apparmor_stop_denial_recovers_project_containers(self):
         result = self.run_script(FAIL_UP_PERMISSION='1')

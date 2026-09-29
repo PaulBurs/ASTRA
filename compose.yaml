@@ -7,14 +7,29 @@ services:
       PGUSER: astra
       PGPASSWORD: astra
       PGDATABASE: astra
+      PGCONNECT_TIMEOUT: "3"
     volumes:
       - ./sql:/sql:ro,z
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        psql -v ON_ERROR_STOP=1 -f /sql/schema/01_core_schema.sql
-        psql -v ON_ERROR_STOP=1 -f /sql/indexes/01_ext_journal_sensor_time.sql
-        psql -v ON_ERROR_STOP=1 -f /sql/indexes/02_astra_channels_catalog.sql
+        attempt=0
+        until psql -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; do
+          attempt=$$((attempt + 1))
+          if [ "$$attempt" -ge 30 ]; then
+            echo "PostgreSQL не принимает подключения после 30 попыток" >&2
+            exit 2
+          fi
+          sleep 1
+        done
+        for file in \
+          /sql/schema/01_core_schema.sql \
+          /sql/indexes/01_ext_journal_sensor_time.sql \
+          /sql/indexes/02_astra_channels_catalog.sql
+        do
+          echo "Применяю $$file"
+          psql -v ON_ERROR_STOP=1 -f "$$file"
+        done
     depends_on:
       postgres:
         condition: service_healthy

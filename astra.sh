@@ -64,12 +64,35 @@ service_url() {
     printf 'http://127.0.0.1:%s' "$published_port"
 }
 
+reset_db_init() {
+    # Compose reuses completed one-shot containers and cannot see changes inside
+    # bind-mounted SQL files. Recreate db-init on every run so migrations are
+    # applied and a container left by a failed launch cannot poison the next one.
+    astra_compose_with_recovery rm -sf db-init >/dev/null
+}
+
+show_start_failure() {
+    echo >&2
+    echo "ASTRA не запустилась. Состояние сервисов:" >&2
+    astra_compose ps -a >&2 || true
+    echo >&2
+    echo "Журнал инициализации базы данных:" >&2
+    astra_compose logs --no-color --tail=100 db-init postgres >&2 || true
+}
+
 start_project() {
     local app_url api_url
+    reset_db_init
     if [[ "$COMMAND" == quick ]]; then
-        astra_compose_with_recovery up -d
+        if ! astra_compose_with_recovery up -d; then
+            show_start_failure
+            return 1
+        fi
     else
-        astra_compose_with_recovery up -d --build
+        if ! astra_compose_with_recovery up -d --build; then
+            show_start_failure
+            return 1
+        fi
     fi
     wait_for_services
     app_url="$(service_url frontend 5173)"
@@ -85,7 +108,11 @@ start_project() {
 check_project() {
     # No host npm, Python, curl or .venv is required.
     astra_compose build backend frontend
-    astra_compose_with_recovery up -d postgres db-init
+    reset_db_init
+    if ! astra_compose_with_recovery up -d postgres db-init; then
+        show_start_failure
+        return 1
+    fi
     echo "Backend tests..."
     astra_compose run --rm --no-deps \
         -e DATA_SOURCE=dummy -e ML_DATA_SOURCE=dummy -e ML_SERVICE_URL= \
