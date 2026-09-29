@@ -140,6 +140,8 @@ services:
       # empty = available CPU cores (2..8)
       DATASET_BUILD_WORKERS: ${DATASET_BUILD_WORKERS:-}
       DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-128}
+      # ML features only for the last N days of every channel (the forecast uses 90); all = everything
+      DATASET_FEATURE_DAYS: ${DATASET_FEATURE_DAYS:-120}
       DATASET_STORAGE_EXPANSION_FACTOR: ${DATASET_STORAGE_EXPANSION_FACTOR:-8}
 
     ports:

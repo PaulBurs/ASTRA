@@ -120,7 +120,7 @@ def test_files_to_pipeline_to_ml(api):
     assert status["status"] == "ready", status
     assert status["counts"] == {
         "source_rows": 11, "event_rows": 9, "duplicate_rows": 1,
-        "orphan_rows": 1, "feature_rows": 9, "channels": 1, "objects": 1,
+        "orphan_rows": 1, "feature_rows": 9, "channels": 1, "objects": 1, "feature_days": 120,
     }
     assert status["ml_check"]["columns"] == ALL_COLUMNS
     assert status["ml_check"]["sample"]

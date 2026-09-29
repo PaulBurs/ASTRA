@@ -347,7 +347,7 @@ def predict_prepared_batch(
         raise ValueError(f"Expected 1..{MAX_BATCH_SENSORS} distinct sensor IDs")
     engine = engine or _prediction_engine()
     try:
-        prepared_dataset(engine, dataset_id)
+        job = prepared_dataset(engine, dataset_id)
     except LookupError as error:
         raise PredictionTargetNotFoundError(str(error)) from error
     schema = schema_name(dataset_id)
@@ -356,6 +356,11 @@ def predict_prepared_batch(
     history_days = history_days or int(os.getenv("ML_PREDICTION_HISTORY_DAYS", "90"))
     if history_days < 90:
         raise ValueError("Для прогноза требуется минимум 90 дней истории")
+    # Features may be prepared only for the last N days of every channel (DATASET_FEATURE_DAYS).
+    feature_days = (job.get("counts") or {}).get("feature_days")
+    if feature_days is not None and history_days * 24 + int(cfg["episode_gap_h"]) > feature_days * 24:
+        raise ValueError(f"Признаки набора подготовлены за {feature_days} дн., а прогноз требует "
+                         f"{history_days} дн. истории: увеличьте DATASET_FEATURE_DAYS и подготовьте набор заново")
 
     results, groups = {}, defaultdict(list)
     # ORDER BY + LIMIT uses the existing (channel, timestamp) index and partition
