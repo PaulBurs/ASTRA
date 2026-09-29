@@ -99,20 +99,32 @@ show_network_diagnostics() {
     fi
 }
 
+compose_up() {
+    astra_compose_with_recovery up -d "$@"
+}
+
+# Start services; if it fails and firewalld was blocking the (possibly just created)
+# ASTRA network, allow it and start once more.
+start_services() {
+    astra_firewalld_allow_bridge || true
+    reset_db_init
+    compose_up "$@" && return 0
+    if astra_firewalld_allow_bridge; then
+        echo "Повторяю запуск после настройки firewalld..."
+        reset_db_init
+        compose_up "$@" && return 0
+    fi
+    show_start_failure
+    return 1
+}
+
 start_project() {
     local app_url api_url
     astra_remove_stale_recreates
-    reset_db_init
     if [[ "$COMMAND" == quick ]]; then
-        if ! astra_compose_with_recovery up -d; then
-            show_start_failure
-            return 1
-        fi
+        start_services || return 1
     else
-        if ! astra_compose_with_recovery up -d --build; then
-            show_start_failure
-            return 1
-        fi
+        start_services --build || return 1
     fi
     wait_for_services
     app_url="$(service_url frontend 5173)"
@@ -128,11 +140,7 @@ start_project() {
 check_project() {
     # No host npm, Python, curl or .venv is required.
     astra_compose build backend frontend
-    reset_db_init
-    if ! astra_compose_with_recovery up -d postgres db-init; then
-        show_start_failure
-        return 1
-    fi
+    start_services postgres db-init || return 1
     echo "Backend tests..."
     astra_compose run --rm --no-deps \
         -e DATA_SOURCE=dummy -e ML_DATA_SOURCE=dummy -e ML_SERVICE_URL= \
