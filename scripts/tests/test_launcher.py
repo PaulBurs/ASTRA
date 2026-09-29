@@ -37,6 +37,10 @@ case "$1" in
       exit 24
     fi
     if [[ "$1" == run && ${FAIL_TESTS:-0} == 1 ]]; then exit 25; fi
+    if [[ "$1" == port ]]; then
+      [[ "$2" == frontend ]] && echo '127.0.0.1:45173' || echo '127.0.0.1:48000'
+      exit 0
+    fi
     if [[ "$1" == ps && "$*" == *'-a -q'* ]]; then
       [[ ${NO_PROJECT_CONTAINERS:-0} == 1 ]] || echo 'stuck-astra'
     elif [[ "$1" == ps && ${2:-} == -q ]]; then echo "fake-$3"; fi
@@ -102,13 +106,21 @@ exec "$@"
         self.assertIn('compose up -d --build', self.calls())
         self.assertNotIn('pytest', self.calls())
         self.assertNotIn('sudo', self.calls())
-        self.assertIn('ASTRA готова:', result.stdout)
+        self.assertIn('ASTRA готова: http://127.0.0.1:45173', result.stdout)
+        self.assertIn('API: http://127.0.0.1:48000/docs', result.stdout)
 
     def test_quick_lets_compose_build_missing_images(self):
         result = self.run_script('run.sh', ['quick'])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('compose up -d\n', self.calls())
         self.assertNotIn('--no-build', self.calls())
+
+    def test_compose_uses_docker_assigned_loopback_ports(self):
+        compose = (ROOT / 'compose.yaml').read_text()
+        self.assertIn('"127.0.0.1::5173"', compose)
+        self.assertIn('"127.0.0.1::8000"', compose)
+        self.assertNotIn('"5173:5173"', compose)
+        self.assertNotIn('"8000:8000"', compose)
 
     @unittest.skipIf(os.geteuid() == 0, 'sudo fallback applies to unprivileged users')
     def test_socket_permission_fallback_keeps_commands_under_sudo(self):

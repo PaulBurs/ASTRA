@@ -266,10 +266,10 @@ Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin
 Автоустановку можно отключить: `ASTRA_AUTO_INSTALL_DOCKER=0 ./astra.sh`. В macOS
 и Windows установите [Docker Desktop](https://docs.docker.com/desktop/) вручную.
 
-После проверки готовности сервисов откроется приложение:
-
-- Frontend: http://127.0.0.1:5173
-- API/Swagger: http://127.0.0.1:8000/docs
+После проверки готовности сервисов launcher напечатает адреса приложения и
+API/Swagger и откроет приложение в браузере. Docker сам выбирает свободные
+локальные порты, поэтому уже работающие PostgreSQL, backend или frontend других
+проектов не мешают запуску ASTRA. Пользователю не нужно искать или настраивать порты.
 
 В режиме v1.0.1 данные появятся после загрузки CSV через вкладку «Данные».
 Демонстрационные строки при запуске в PostgreSQL не добавляются.
@@ -356,9 +356,8 @@ ML-сервис аналогично доступен только контей�
 
 ## Backend
 
-```text
-localhost:8000
-```
+Внешний адрес backend с автоматически выбранным портом печатает `./astra.sh`.
+Внутри Docker-сети backend всегда доступен как `backend:8000`.
 
 Backend работает с Uvicorn в режиме reload. Исходники backend подключены в контейнер через bind mount.
 
@@ -376,9 +375,8 @@ Uvicorn автоматически перезапускается
 
 ## Frontend
 
-```text
-localhost:5173
-```
+Внешний адрес frontend с автоматически выбранным портом печатает `./astra.sh`
+и автоматически открывает в браузере.
 
 Frontend работает через Vite dev server. `frontend/src` подключён через bind mount.
 
@@ -455,7 +453,9 @@ SensorDetails.tsx
 frontend/src/config.ts
 ```
 
-URL backend берётся из:
+По умолчанию браузер использует относительный `/api`, а Vite перенаправляет его
+на `backend:8000` внутри Docker. Для отдельного frontend вне Compose адрес можно
+переопределить:
 
 ```env
 VITE_API_URL=http://127.0.0.1:8000
@@ -744,11 +744,7 @@ API и service layer при этом менять не должны.
 
 # REST API
 
-Интерактивная документация FastAPI:
-
-```text
-http://127.0.0.1:8000/docs
-```
+Адрес интерактивной документации FastAPI печатает `./astra.sh` после запуска.
 
 ## System
 
@@ -1328,9 +1324,7 @@ cd ..
 
 ## Я хочу посмотреть Swagger
 
-```text
-http://127.0.0.1:8000/docs
-```
+Откройте адрес `API`, который напечатал `./astra.sh`, с окончанием `/docs`.
 
 ## Я хочу остановить всё
 
@@ -1375,31 +1369,32 @@ docker compose logs -f postgres
 Backend health:
 
 ```bash
-curl http://127.0.0.1:8000/api/health
+ASTRA_API_URL="http://$(docker compose port backend 8000)"
+curl "$ASTRA_API_URL/api/health"
 ```
 
 Dashboard:
 
 ```bash
-curl http://127.0.0.1:8000/api/dashboard
+curl "$ASTRA_API_URL/api/dashboard"
 ```
 
 Sensors:
 
 ```bash
-curl http://127.0.0.1:8000/api/sensors
+curl "$ASTRA_API_URL/api/sensors"
 ```
 
 Один датчик:
 
 ```bash
-curl http://127.0.0.1:8000/api/sensors/56682
+curl "$ASTRA_API_URL/api/sensors/56682"
 ```
 
 ML prediction:
 
 ```bash
-curl http://127.0.0.1:8000/api/ml/predict/56682
+curl "$ASTRA_API_URL/api/ml/predict/56682"
 ```
 
 Git status:

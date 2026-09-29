@@ -7,7 +7,6 @@ cd "$PROJECT_DIR"
 # shellcheck source=scripts/docker-compose.sh
 source "$PROJECT_DIR/scripts/docker-compose.sh"
 
-APP_URL="http://127.0.0.1:5173"
 COMMAND="${1:-run}"
 
 usage() {
@@ -52,18 +51,34 @@ wait_for_services() {
     return 1
 }
 
+service_url() {
+    local service="$1" container_port="$2" binding="" published_port
+    while IFS= read -r binding; do
+        [[ -n "$binding" ]] && break
+    done < <(astra_compose port "$service" "$container_port")
+    published_port="${binding##*:}"
+    if [[ ! "$published_port" =~ ^[0-9]+$ ]]; then
+        echo "Ошибка: Docker не сообщил внешний порт сервиса $service." >&2
+        return 1
+    fi
+    printf 'http://127.0.0.1:%s' "$published_port"
+}
+
 start_project() {
+    local app_url api_url
     if [[ "$COMMAND" == quick ]]; then
         astra_compose_with_recovery up -d
     else
         astra_compose_with_recovery up -d --build
     fi
     wait_for_services
+    app_url="$(service_url frontend 5173)"
+    api_url="$(service_url backend 8000)"
     echo
-    echo "ASTRA готова: $APP_URL"
-    echo "API: http://127.0.0.1:8000/docs"
+    echo "ASTRA готова: $app_url"
+    echo "API: $api_url/docs"
     if [[ "${ASTRA_OPEN_BROWSER:-1}" == 1 ]] && command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$APP_URL" >/dev/null 2>&1 &
+        xdg-open "$app_url" >/dev/null 2>&1 &
     fi
 }
 
