@@ -78,21 +78,53 @@ show_start_failure() {
     echo >&2
     echo "Журнал инициализации базы данных:" >&2
     astra_compose logs --no-color --tail=100 db-init postgres >&2 || true
+    show_network_diagnostics
+}
+
+show_network_diagnostics() {
+    # db-init reaches PostgreSQL by the service name: show where the containers really are.
+    local container_id="" network
+    read -r container_id < <(astra_compose ps -q postgres 2>/dev/null) || true
+    [[ -n "$container_id" ]] || return 0
+    echo >&2
+    echo "Сеть Docker для PostgreSQL:" >&2
+    astra_docker inspect --format '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}}{{"\n"}}{{end}}' \
+        "$container_id" >&2 2>/dev/null || true
+    network="$(astra_docker inspect --format '{{range $name, $net := .NetworkSettings.Networks}}{{$name}}{{end}}' \
+        "$container_id" 2>/dev/null || true)"
+    if [[ -n "$network" ]]; then
+        echo "Контейнеры в сети $network:" >&2
+        astra_docker network inspect --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}' \
+            "$network" >&2 2>/dev/null || true
+    fi
+}
+
+compose_up() {
+    astra_compose_with_recovery up -d "$@"
+}
+
+# Start services; if it fails and firewalld was blocking the (possibly just created)
+# ASTRA network, allow it and start once more.
+start_services() {
+    astra_firewalld_allow_bridge || true
+    reset_db_init
+    compose_up "$@" && return 0
+    if astra_firewalld_allow_bridge; then
+        echo "Повторяю запуск после настройки firewalld..."
+        reset_db_init
+        compose_up "$@" && return 0
+    fi
+    show_start_failure
+    return 1
 }
 
 start_project() {
     local app_url api_url
-    reset_db_init
+    astra_remove_stale_recreates
     if [[ "$COMMAND" == quick ]]; then
-        if ! astra_compose_with_recovery up -d; then
-            show_start_failure
-            return 1
-        fi
+        start_services || return 1
     else
-        if ! astra_compose_with_recovery up -d --build; then
-            show_start_failure
-            return 1
-        fi
+        start_services --build || return 1
     fi
     wait_for_services
     app_url="$(service_url frontend 5173)"
@@ -108,11 +140,7 @@ start_project() {
 check_project() {
     # No host npm, Python, curl or .venv is required.
     astra_compose build backend frontend
-    reset_db_init
-    if ! astra_compose_with_recovery up -d postgres db-init; then
-        show_start_failure
-        return 1
-    fi
+    start_services postgres db-init || return 1
     echo "Backend tests..."
     astra_compose run --rm --no-deps \
         -e DATA_SOURCE=dummy -e ML_DATA_SOURCE=dummy -e ML_SERVICE_URL= \

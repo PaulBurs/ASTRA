@@ -18,12 +18,21 @@ case "$1" in
   context) echo "${FAKE_CONTEXT:-default}"; exit 0 ;;
   inspect)
     case "$*" in
+      *NetworkSettings.Networks*) echo 'astra_default ' ;;
+      *'{{.Name}}'*) [[ "$*" == *stale-temp* ]] && echo /5a6011bb9d2f_astra-source-agent-1 || echo /astra-backend-1 ;;
+      *State.Running*stale-temp*) echo false ;;
       *State.Pid*) echo 4242 ;;
       *State.Running*) [[ -f "$FAKE_RECOVERY_STATE" ]] && echo false || echo true ;;
       *) echo "${FAKE_HEALTH:-healthy}" ;;
     esac
     exit 0 ;;
   rm) exit 0 ;;
+  network)
+    case "$*" in
+      *'{{.Id}}'*) echo 84accbfcecd2deadbeefcafe ;;
+      *bridge.name*) echo '<no value>' ;;
+    esac
+    exit 0 ;;
   compose)
     shift
     if [[ "$1" == version ]]; then
@@ -36,6 +45,15 @@ case "$1" in
       echo 'service "db-init" did not complete successfully: exit 2' >&2
       exit 2
     fi
+    if [[ "$1" == up ]]; then : > "$FAKE_UP_DONE"; fi
+    if [[ "$1" == up && ${FIREWALL_BLOCKS:-0} == 1 && ! -f "$FAKE_FIREWALL_STATE" ]]; then
+      echo 'service "db-init" did not complete successfully: exit 2' >&2
+      exit 2
+    fi
+    if [[ "$1" == up && ${FAIL_UP_CONFLICT:-0} == 1 && ! -f "$FAKE_RECOVERY_STATE" ]]; then
+      echo 'Error response from daemon: Error when allocating new name: Conflict. The container name "/astra-source-agent-1" is already in use by container "c1944c596325". You have to remove (or rename) that container to be able to reuse that name.' >&2
+      exit 1
+    fi
     if [[ "$1" == up && ${FAIL_UP_PERMISSION:-0} == 1 && ! -f "$FAKE_RECOVERY_STATE" ]]; then
       echo 'Error response from daemon: cannot stop container: abc123: permission denied' >&2
       exit 24
@@ -46,6 +64,9 @@ case "$1" in
       exit 0
     fi
     if [[ "$1" == ps && "$*" == *'-a -q'* ]]; then
+      # a network (and containers) that only appear during this `up`
+      [[ ${CONTAINERS_AFTER_UP:-0} == 1 && ! -f "$FAKE_UP_DONE" ]] && exit 0
+      [[ ${STALE_RECREATE:-0} == 1 ]] && echo 'stale-temp'
       [[ ${NO_PROJECT_CONTAINERS:-0} == 1 ]] || echo 'stuck-astra'
     elif [[ "$1" == ps && ${2:-} == -q ]]; then echo "fake-$3"; fi
     exit 0 ;;
@@ -69,6 +90,7 @@ class LauncherTest(unittest.TestCase):
         self.env = {**os.environ, 'PATH': str(self.bin), 'ASTRA_OPEN_BROWSER': '0',
                     'FAKE_LOG': str(self.log), 'FAKE_STATE': str(self.root / 'daemon'),
                     'FAKE_RECOVERY_STATE': str(self.root / 'recovered'),
+                    'FAKE_FIREWALL_STATE': str(self.root / 'firewall'), 'FAKE_UP_DONE': str(self.root / 'up'),
                     'ASTRA_WAIT_TIMEOUT': '2'}
         for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'COMPOSE_KIND', 'SCENARIO'):
             self.env.pop(key, None)
@@ -182,6 +204,8 @@ exec "$@"
         self.assertIn('compose ps -a', self.calls())
         self.assertIn('compose logs --no-color --tail=100 db-init postgres', self.calls())
         self.assertIn('Журнал инициализации базы данных', result.stderr)
+        self.assertIn('Сеть Docker для PostgreSQL', result.stderr)
+        self.assertIn('docker inspect --format {{range $name, $net := .NetworkSettings.Networks}}', self.calls())
         self.assertNotIn('ASTRA готова:', result.stdout)
 
     def test_ubuntu_apparmor_stop_denial_recovers_project_containers(self):
@@ -195,6 +219,68 @@ exec "$@"
         self.assertIn('docker rm -f stuck-astra', calls)
         self.assertNotIn('systemctl restart', calls)
         self.assertIn('Контейнеры ASTRA восстановлены', result.stdout)
+
+    def test_name_conflict_after_failed_recreate_recovers_project_containers(self):
+        # The old container kept the service name, so Compose could not rename its replacement.
+        result = self.run_script(FAIL_UP_CONFLICT='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertEqual(calls.count('docker compose up -d --build'), 2)
+        self.assertIn('kill -TERM 4242', calls)
+        self.assertIn('docker rm -f stuck-astra', calls)
+        self.assertIn('имя занято старым контейнером', result.stderr)
+        self.assertIn('ASTRA готова:', result.stdout)
+
+    def test_stopped_leftovers_of_an_interrupted_recreate_are_removed_before_start(self):
+        result = self.run_script(STALE_RECREATE='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertIn('docker rm stale-temp', calls)
+        self.assertNotIn('docker rm stuck-astra', calls)          # a normal container is kept
+        self.assertLess(calls.index('docker rm stale-temp'), calls.index('compose up'))
+        self.assertIn('5a6011bb9d2f_astra-source-agent-1', result.stdout)
+
+    def firewalld(self, zoned=False):
+        """firewall-cmd: running; the ASTRA bridge is in no zone until it is added."""
+        self.script('firewall-cmd', f'''#!/bin/bash
+printf 'firewall-cmd %s\\n' "$*" >> "$FAKE_LOG"
+case "$*" in
+  --state) exit 0 ;;
+  --get-zones) echo 'block docker public trusted' ;;
+  --get-zone-of-interface=*) [[ {int(zoned)} == 1 || -f "$FAKE_FIREWALL_STATE" ]] && echo docker && exit 0; echo 'no zone'; exit 2 ;;
+  --zone=*--add-interface=*) : > "$FAKE_FIREWALL_STATE" ;;
+esac
+''')
+
+    def test_firewalld_blocking_the_astra_bridge_is_fixed_before_start(self):
+        self.firewalld()
+        result = self.run_script(FIREWALL_BLOCKS='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertIn('firewall-cmd --zone=docker --add-interface=br-84accbfcecd2', calls)
+        self.assertLess(calls.index('--add-interface'), calls.index('compose up'))
+        self.assertEqual(calls.count('docker compose up -d --build'), 1)
+        self.assertIn('ASTRA готова:', result.stdout)
+
+    def test_network_created_by_this_start_is_fixed_and_start_retried(self):
+        self.firewalld()
+        result = self.run_script(FIREWALL_BLOCKS='1', CONTAINERS_AFTER_UP='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertEqual(calls.count('docker compose up -d --build'), 2)
+        self.assertLess(calls.index('compose up'), calls.index('--add-interface'))
+        self.assertIn('Повторяю запуск после настройки firewalld', result.stdout)
+
+    def test_bridge_already_in_a_firewalld_zone_is_left_alone(self):
+        self.firewalld(zoned=True)
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('--add-interface', self.calls())
+
+    def test_without_firewalld_nothing_is_changed(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('firewall-cmd', self.calls())
 
     def test_apparmor_recovery_does_not_touch_unknown_containers(self):
         result = self.run_script(FAIL_UP_PERMISSION='1', NO_PROJECT_CONTAINERS='1')
