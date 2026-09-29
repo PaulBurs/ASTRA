@@ -46,9 +46,6 @@ services:
       POSTGRES_USER: astra
       POSTGRES_PASSWORD: astra
 
-    ports:
-      - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -73,9 +70,6 @@ services:
       ML_FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
       OMP_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
-
-    ports:
-      - "9000:9000"
 
     volumes:
       - ./ml:/app/ml:Z

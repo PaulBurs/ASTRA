@@ -344,9 +344,15 @@ frontend
 
 ## PostgreSQL
 
-```text
-localhost:5432
+PostgreSQL доступен backend и ML внутри Docker-сети по адресу `postgres:5432`.
+Порт `5432` на компьютере не занимается, поэтому ASTRA может запускаться рядом
+с локально установленным PostgreSQL. Для консоли базы используйте:
+
+```bash
+docker compose exec postgres psql -U astra -d astra
 ```
+
+ML-сервис аналогично доступен только контейнерам ASTRA по адресу `ml:9000`.
 
 ## Backend
 
