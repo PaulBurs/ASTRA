@@ -259,6 +259,12 @@ Docker-команды через `sudo` и при необходимости з�
 ссылку на известную проблему пакета Docker для Ubuntu и завершает работу без
 ложного сообщения об успешном запуске.
 
+Тот же сбой проявляется и иначе: старый контейнер не остановился, и Compose не может
+отдать его имя новому (`Error when allocating new name: Conflict ... is already in use by
+container`). `./astra.sh` восстанавливает контейнеры проекта и в этом случае. Кроме того,
+перед запуском он удаляет остановленные контейнеры с временными именами вида
+`5a6011bb9d2f_astra-source-agent-1`, оставшиеся от прерванного пересоздания.
+
 Если Docker ещё не установлен, `./astra.sh` в Linux установит его сам:
 скачает официальный скрипт [get.docker.com](https://get.docker.com) (Ubuntu, Debian,
 Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin через `sudo`,

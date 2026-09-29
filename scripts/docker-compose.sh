@@ -239,6 +239,29 @@ astra_recover_apparmor_containers() {
     fi
 }
 
+# Errors after which the project's own containers are stopped by PID, removed and the
+# Compose command is retried: the AppArmor stop denial, and a recreate that could not take
+# the service name because the old container was never stopped or removed.
+ASTRA_STUCK_CONTAINER_ERRORS='cannot (stop|kill) container.*permission denied|Error when allocating new name: Conflict|is already in use by container'
+
+# An interrupted recreate leaves stopped containers named "<12 hex>_<project>-<service>-N".
+# Compose counts them as extra replicas and may trip over them on the next start. Remove
+# only such stopped containers of this project; volumes (the database) are not touched.
+astra_remove_stale_recreates() {
+    local -a container_ids=()
+    local container_id name running
+    mapfile -t container_ids < <(astra_compose ps -a -q 2>/dev/null)
+    for container_id in "${container_ids[@]}"; do
+        [[ -n "$container_id" ]] || continue
+        name="$(astra_docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null || true)"
+        [[ "$name" =~ ^/?[0-9a-f]{12}_ ]] || continue
+        running="$(astra_docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+        [[ "$running" == false ]] || continue
+        echo "Удаляю контейнер от прерванного запуска ${name#/}"
+        astra_docker rm "$container_id" >/dev/null 2>&1 || true
+    done
+}
+
 # Run a Compose mutation and retry it once after the exact Docker/AppArmor stop
 # failure. Output remains live because image builds can take several minutes.
 astra_compose_with_recovery() {
@@ -260,13 +283,18 @@ astra_compose_with_recovery() {
         rm -f "$log_file"
         return 0
     fi
-    if ! grep -Eqi 'cannot (stop|kill) container.*permission denied' "$log_file"; then
+    if ! grep -Eqi "$ASTRA_STUCK_CONTAINER_ERRORS" "$log_file"; then
         rm -f "$log_file"
         return "$status"
     fi
 
     echo >&2
-    echo "Docker не может остановить контейнеры из-за сбоя AppArmor." >&2
+    if grep -Eqi 'permission denied' "$log_file"; then
+        echo "Docker не может остановить контейнеры из-за сбоя AppArmor." >&2
+    else
+        # The old container was not stopped/removed, so the replacement cannot take its name.
+        echo "Docker не смог пересоздать контейнеры ASTRA: имя занято старым контейнером." >&2
+    fi
     echo "Восстанавливаю только контейнеры ASTRA; загруженная БД сохранится." >&2
     if [[ "${ASTRA_AUTO_REPAIR_DOCKER:-1}" != 1 ]] || ! astra_recover_apparmor_containers; then
         rm -f "$log_file"
