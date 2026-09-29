@@ -5,14 +5,12 @@ import sys
 import psycopg
 from psycopg import sql
 
-from .cache import BuildProfile, CachePlan, staging_parts
 from .csv_input import CHANNELS, OBJECTS, csv_rows
-from .compact import create_event_storage, create_staging_parts, finish_event_storage
-from .features import fill_unlogged, finish_features, ml_index_columns, prepare_features, without_wal
+from .compact import compact_events
+from .features import build_features
 from .ingest import load_events
 from .parallel import BuildSettings, set_autovacuum
 from .registry import schema_name
-from .stream import YearPipeline
 
 SQL_ROOT = Path(__file__).resolve().parents[1] / "sql"
 if not SQL_ROOT.is_dir():
@@ -57,19 +55,9 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
-            # Memory of the workers and the year pipeline follow the RAM cache (cache.py).
-            plan = CachePlan.from_server(conn)
-            settings = plan.size_workers(settings)
-            profile = BuildProfile(conn, progress)
-            progress = profile.progress
-            progress(f"Подготовка таблиц ({plan.describe()})", counts)
             settings.configure(conn)
             staging = (SQL_ROOT / "00_create_journal.sql").read_text(encoding="utf-8")
             execute_script(conn, staging.replace("CREATE TABLE", "CREATE UNLOGGED TABLE"), schema)
-            journal_bytes = sum(Path(f["path"]).stat().st_size for f in files
-                                if f["role"] in {"events", "prepared_events"})
-            parts = staging_parts(journal_bytes, settings.work_mem_mb)
-            create_staging_parts(conn, schema, parts)
             set_autovacuum(conn, schema, False)
             # Journals are parsed by several processes in parallel (see ingest.py).
             latest, source_years = load_events(conn, url, schema, files, settings.workers, progress, counts)
@@ -95,30 +83,21 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             for table in ("ref_channels", "ref_objects", "ref_state_fixed"):
                 conn.execute(f"ANALYZE {schema}.{table}")
             progress("Очистка и объединение событий", counts)
-            create_event_storage(conn, schema)
-            blocks, finish, codes = prepare_features(
-                conn, schema, settings, (SQL_ROOT / "03_ml_features.sql").read_text(encoding="utf-8"),
-                execute_script)
-            channels = {r[0] for r in conn.execute(f'SELECT "ид_канала_данных" FROM {schema}.ref_channels')}
-            unlogged = without_wal(conn)
-            if unlogged:
-                fill_unlogged(conn, schema, source_years)
-            # Clean -> index -> features -> index, year after year, while each year is in RAM.
-            inventory, feature_rows = YearPipeline(
-                conn, schema, settings, plan, source_years, parts, channels, blocks, codes,
-                ml_index_columns(finish), unlogged, progress, counts, profile).run(url)
+            inventory = compact_events(conn, url, schema, settings, source_years, progress, counts)
             event_rows, orphan_rows, duplicates = conn.execute(f'''
                 SELECT sum("строк_загружено"), sum("строк_сирот"), sum("удалено_дублей")
                 FROM {schema}.build_log
             ''').fetchone()
             counts.update(event_rows=int(event_rows), orphan_rows=int(orphan_rows),
-                          duplicate_rows=int(duplicates), feature_rows=feature_rows)
+                          duplicate_rows=int(duplicates))
             if not event_rows:
                 raise ValueError("После проверки справочников в журнале не осталось событий")
-            progress("Индексирование истории событий", counts)
-            finish_event_storage(conn, schema, settings)
-            progress("Индексирование ML-признаков", counts)
-            finish_features(conn, schema, settings, finish, execute_script)
+            progress("Расчёт ML-признаков", counts)
+            counts["feature_rows"] = build_features(
+                conn, url, schema, settings, inventory,
+                (SQL_ROOT / "03_ml_features.sql").read_text(encoding="utf-8"),
+                execute_script, progress, counts,
+            )
             if counts["feature_rows"] != counts["event_rows"]:
                 raise ValueError("Число ML-строк не совпало с числом событий. Проверьте совместимость справочников с кодами модели")
             counts["channels"] = conn.execute(f"SELECT count(*) FROM {schema}.ref_channels").fetchone()[0]
@@ -129,7 +108,6 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
                 for row in latest.values():
                     copy.write_row(row)
             conn.execute(f'CREATE UNIQUE INDEX ON {schema}.latest_sensor_events ("ид_канала_данных")')
-            profile.save(conn, schema)
             set_autovacuum(conn, schema, True)
         except BaseException:
             # This UUID schema belongs only to the failed import. Previously ready

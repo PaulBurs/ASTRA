@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import os
 from threading import Event, Lock
-import time
 
 import psycopg
 
@@ -21,11 +20,9 @@ class BuildSettings:
 
     @classmethod
     def from_env(cls):
-        # Empty memory variables mean "size from the RAM cache of the database" (cache.py);
-        # without a published cache budget the former defaults apply.
         workers = int(os.getenv("DATASET_BUILD_WORKERS") or default_workers())
-        memory = int(os.getenv("DATASET_WORK_MEM_MB") or "128")
-        maintenance = int(os.getenv("DATASET_MAINTENANCE_MEM_MB") or "1024")
+        memory = int(os.getenv("DATASET_WORK_MEM_MB", "128"))
+        maintenance = int(os.getenv("DATASET_MAINTENANCE_MEM_MB", "1024"))
         if not 1 <= workers <= 32 or not 16 <= memory <= 1024 or not 64 <= maintenance <= 16384:
             raise ValueError("DATASET_BUILD_WORKERS: 1–32; DATASET_WORK_MEM_MB: 16–1024; "
                              "DATASET_MAINTENANCE_MEM_MB: 64–16384")
@@ -38,8 +35,6 @@ class BuildSettings:
         conn.execute("SET max_parallel_workers_per_gather = 0")
         conn.execute("SET max_parallel_maintenance_workers = 0")
         conn.execute("SET jit = off")
-        # A commit lost in a crash only loses this import, which is dropped anyway.
-        conn.execute("SET synchronous_commit = off")
 
     def configure_indexing(self, conn):
         """Index builds run alone on the main connection: give them memory and parallel workers."""
@@ -56,53 +51,35 @@ def set_autovacuum(conn, schema: str, enabled: bool) -> None:
         conn.execute(f'ALTER TABLE {schema}."{table}" SET (autovacuum_enabled = {str(enabled).lower()})')
 
 
-class WorkerPool:
-    """Runs `work(conn, job)` on at most `settings.workers` sessions, a fresh one per job.
+def run_jobs(url, settings, jobs, work, completed):
+    """`completed` runs on the caller, so progress and counters have one writer."""
+    stopped, lock, connections = Event(), Lock(), set()
 
-    If the caller's block raises (a job failed, or the caller itself), statements that are
-    still running are cancelled and every session is closed before the error propagates,
-    so the caller can drop the import schema safely."""
-
-    def __init__(self, url, settings):
-        self.url, self.settings = url, settings
-        self.stopped, self.lock, self.connections, self.futures = Event(), Lock(), set(), []
-        self.executor = ThreadPoolExecutor(max_workers=settings.workers)
-
-    def submit(self, work, job):
-        future = self.executor.submit(self._run, work, job)
-        self.futures.append(future)
-        return future
-
-    def _run(self, work, job):
-        with psycopg.connect(self.url, autocommit=True, application_name="astra-import") as conn:
-            with self.lock:
-                if self.stopped.is_set():
+    def run(job):
+        with psycopg.connect(url, autocommit=True, application_name="astra-import") as conn:
+            with lock:
+                if stopped.is_set():
                     return None
-                self.connections.add(conn)
+                connections.add(conn)
             try:
-                self.settings.configure(conn)
-                if self.stopped.is_set():
+                settings.configure(conn)
+                if stopped.is_set():
                     return None
                 return work(conn, job)
             finally:
-                with self.lock:
-                    self.connections.remove(conn)
+                with lock:
+                    connections.remove(conn)
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        if exc_type is not None:
-            self.stopped.set()
-            for future in self.futures:
+    with ThreadPoolExecutor(max_workers=settings.workers) as pool:
+        futures = [pool.submit(run, job) for job in jobs]
+        try:
+            for future in as_completed(futures):
+                completed(future.result())
+        except BaseException:
+            stopped.set()
+            for future in futures:
                 future.cancel()
-            # A cancel that arrives between two statements of a task is lost: repeat it
-            # until every session has closed.
-            while True:
-                with self.lock:
-                    connections = list(self.connections)
-                if not connections:
-                    break
+            with lock:
                 for conn in connections:
                     try:
                         conn.cancel()
@@ -110,15 +87,5 @@ class WorkerPool:
                         # Preserve the original error if the failed connection
                         # also became unavailable while cancelling its siblings.
                         pass
-                time.sleep(0.2)
-        # The executor waits for all SQL sessions to close before schema cleanup.
-        self.executor.shutdown(wait=True)
-        return False
-
-
-def run_jobs(url, settings, jobs, work, completed):
-    """`completed` runs on the caller, so progress and counters have one writer."""
-    with WorkerPool(url, settings) as pool:
-        futures = [pool.submit(work, job) for job in jobs]
-        for future in as_completed(futures):
-            completed(future.result())
+            # Executor waits for all SQL sessions to close before schema cleanup.
+            raise
