@@ -54,9 +54,9 @@ wait_for_services() {
 
 start_project() {
     if [[ "$COMMAND" == quick ]]; then
-        astra_compose up -d
+        astra_compose_with_recovery up -d
     else
-        astra_compose up -d --build
+        astra_compose_with_recovery up -d --build
     fi
     wait_for_services
     echo
@@ -70,7 +70,7 @@ start_project() {
 check_project() {
     # No host npm, Python, curl or .venv is required.
     astra_compose build backend frontend
-    astra_compose up -d postgres db-init
+    astra_compose_with_recovery up -d postgres db-init
     echo "Backend tests..."
     astra_compose run --rm --no-deps \
         -e DATA_SOURCE=dummy -e ML_DATA_SOURCE=dummy -e ML_SERVICE_URL= \
@@ -95,7 +95,7 @@ echo "Docker Compose: $(astra_compose_name)"
 case "$COMMAND" in
     run|quick|rebuild) start_project ;;
     check) check_project ;;
-    stop) astra_compose down; echo "ASTRA остановлена. Загруженная БД сохранена." ;;
+    stop) astra_compose_with_recovery down; echo "ASTRA остановлена. Загруженная БД сохранена." ;;
     status) astra_compose ps ;;
     logs) astra_compose logs -f ;;
 esac

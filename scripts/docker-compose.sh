@@ -10,6 +10,7 @@ ASTRA_DOCKER_READY=0
 
 ASTRA_DOCKER_INSTALL_URL="${ASTRA_DOCKER_INSTALL_URL:-https://get.docker.com}"
 ASTRA_COMPOSE_PLUGIN_DIR="${ASTRA_COMPOSE_PLUGIN_DIR:-/usr/local/lib/docker/cli-plugins}"
+ASTRA_DOCKER_APPARMOR_ISSUE_URL="https://github.com/canonical/docker-snap/issues/190"
 
 astra_docker() {
     "${ASTRA_DOCKER_COMMAND[@]}" "$@"
@@ -184,6 +185,100 @@ astra_find_compose() {
 astra_compose() {
     astra_prepare_docker || return 1
     "${ASTRA_COMPOSE_COMMAND[@]}" "$@"
+}
+
+# Some Ubuntu installations of Docker from snap leave an AppArmor profile that
+# prevents dockerd/runc from signalling an existing container. In that state
+# even `sudo docker stop` returns "permission denied". Recover only containers
+# selected by this Compose project, using the host PID reported by Docker. Named
+# volumes (including PostgreSQL data) are not removed.
+astra_recover_apparmor_containers() {
+    local -a container_ids=()
+    local container_id pid running found=0
+
+    mapfile -t container_ids < <(astra_compose ps -a -q)
+    for container_id in "${container_ids[@]}"; do
+        [[ -n "$container_id" ]] || continue
+        found=1
+        running="$(astra_docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+        if [[ "$running" == true ]]; then
+            pid="$(astra_docker inspect --format '{{.State.Pid}}' "$container_id" 2>/dev/null || true)"
+            if [[ ! "$pid" =~ ^[0-9]+$ ]] || ((pid <= 1)); then
+                echo "Ошибка: Docker не сообщил безопасный PID контейнера $container_id." >&2
+                return 1
+            fi
+
+            echo "Останавливаю зависший контейнер ASTRA ${container_id:0:12}..."
+            astra_as_root kill -TERM "$pid" 2>/dev/null || true
+            for _ in {1..30}; do
+                running="$(astra_docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+                [[ "$running" != true ]] && break
+                sleep 0.1
+            done
+            if [[ "$running" == true ]]; then
+                astra_as_root kill -KILL "$pid" 2>/dev/null || true
+                for _ in {1..20}; do
+                    running="$(astra_docker inspect --format '{{.State.Running}}' "$container_id" 2>/dev/null || true)"
+                    [[ "$running" != true ]] && break
+                    sleep 0.1
+                done
+            fi
+            if [[ "$running" == true ]]; then
+                echo "Ошибка: процесс контейнера $container_id не остановился." >&2
+                return 1
+            fi
+        fi
+
+        # Remove only the container object. Compose recreates it; named volumes survive.
+        astra_docker rm -f "$container_id" >/dev/null || return 1
+    done
+
+    if ((found == 0)); then
+        echo "Ошибка: Compose не нашёл контейнеры ASTRA для восстановления." >&2
+        return 1
+    fi
+}
+
+# Run a Compose mutation and retry it once after the exact Docker/AppArmor stop
+# failure. Output remains live because image builds can take several minutes.
+astra_compose_with_recovery() {
+    local log_file
+    local status had_errexit=0
+
+    log_file="$(mktemp "${TMPDIR:-/tmp}/astra-compose.XXXXXX.log")" || {
+        echo "Ошибка: не удалось создать временный журнал Docker Compose." >&2
+        return 1
+    }
+
+    [[ $- == *e* ]] && had_errexit=1
+    set +e
+    astra_compose "$@" 2>&1 | tee "$log_file"
+    status=${PIPESTATUS[0]}
+    ((had_errexit)) && set -e
+
+    if ((status == 0)); then
+        rm -f "$log_file"
+        return 0
+    fi
+    if ! grep -Eqi 'cannot (stop|kill) container.*permission denied' "$log_file"; then
+        rm -f "$log_file"
+        return "$status"
+    fi
+
+    echo >&2
+    echo "Docker не может остановить контейнеры из-за сбоя AppArmor." >&2
+    echo "Восстанавливаю только контейнеры ASTRA; загруженная БД сохранится." >&2
+    if [[ "${ASTRA_AUTO_REPAIR_DOCKER:-1}" != 1 ]] || ! astra_recover_apparmor_containers; then
+        rm -f "$log_file"
+        echo "Автовосстановление Docker не выполнено." >&2
+        echo "Описание известной проблемы Ubuntu: $ASTRA_DOCKER_APPARMOR_ISSUE_URL" >&2
+        echo "После обновления Docker или перезагрузки системы повторите ./astra.sh." >&2
+        return "$status"
+    fi
+
+    rm -f "$log_file"
+    echo "Контейнеры ASTRA восстановлены. Повторяю команду Docker Compose..."
+    astra_compose "$@"
 }
 
 astra_compose_name() {
