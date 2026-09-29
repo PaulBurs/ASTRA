@@ -15,8 +15,31 @@ ASTRA — веб-сервис для мониторинга инженерной
 
 ---
 
+## Документация по каталогам
+
+| Каталог | Содержимое |
+|---|---|
+| [`backend/`](backend/README.md) | REST API (FastAPI): импорт наборов, датчики, прогнозы, рабочее место диспетчера |
+| [`backend/app/`](backend/app/README.md) | Массовый прогноз, остановка и продолжение, исключение пересечения с подготовкой данных |
+| [`frontend/`](frontend/README.md) | Интерфейс диспетчера и техспециалиста (React, TypeScript, Vite) |
+| [`frontend/src/`](frontend/src/README.md) | Блок «Прогноз модели»: запуск, остановка, прогресс и время расчёта |
+| [`ml/`](ml/README.md) | ML-сервис прогноза (FastAPI, LightGBM), артефакты модели |
+| [`ml/src/`](ml/src/README.md) | Пакетный прогноз по подготовленному набору (один проход на объект, точность до 1e-12) |
+| [`data_pipeline/`](data_pipeline/README.md) | Подготовка данных и признаков (PostgreSQL SQL, пакеты `astra_pipeline`, `lct_features`) |
+| [`data_pipeline/astra_pipeline/`](data_pipeline/astra_pipeline/README.md) | Параллельные чтение, очистка и расчёт признаков; признаки только за период прогноза |
+| [`sql/`](sql/README.md) | Схема БД приложения, индексы, диагностические и справочные запросы |
+| [`source_agent/`](source_agent/README.md) | Агент чтения исходных CSV с хоста (HTTP) |
+| [`data/`](data/README.md) | Каталог загрузок наборов данных (том Docker) |
+| [`docs/`](docs/README.md) | Указатель документации модулей |
+| [`svg/`](svg/README.md) | Макеты экранов интерфейса (SVG/PNG) |
+| [`scripts/`](scripts/README.md) | Библиотека launcher: установка Docker, Compose, `sudo`, восстановление после AppArmor/конфликтов имён, firewalld |
+| [`.github/`](.github/README.md) | CI: GitHub Actions |
+
+---
+
 ## Содержание
 
+0. [Документация по каталогам](#документация-по-каталогам)
 1. [Архитектура](#архитектура)
 2. [Структура репозитория](#структура-репозитория)
 3. [Технологии](#технологии)
