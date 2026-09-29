@@ -189,6 +189,8 @@ exec "$@"
         self.assertIn('compose ps -a', self.calls())
         self.assertIn('compose logs --no-color --tail=100 db-init postgres', self.calls())
         self.assertIn('Журнал инициализации базы данных', result.stderr)
+        self.assertIn('Сеть Docker для PostgreSQL', result.stderr)
+        self.assertIn('docker inspect --format {{range $name, $net := .NetworkSettings.Networks}}', self.calls())
         self.assertNotIn('ASTRA готова:', result.stdout)
 
     def test_ubuntu_apparmor_stop_denial_recovers_project_containers(self):

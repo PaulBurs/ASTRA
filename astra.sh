@@ -78,6 +78,25 @@ show_start_failure() {
     echo >&2
     echo "Журнал инициализации базы данных:" >&2
     astra_compose logs --no-color --tail=100 db-init postgres >&2 || true
+    show_network_diagnostics
+}
+
+show_network_diagnostics() {
+    # db-init reaches PostgreSQL by the service name: show where the containers really are.
+    local container_id network
+    container_id="$(astra_compose ps -q postgres 2>/dev/null | head -n 1)"
+    [[ -n "$container_id" ]] || return 0
+    echo >&2
+    echo "Сеть Docker для PostgreSQL:" >&2
+    astra_docker inspect --format '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{$net.IPAddress}}{{"\n"}}{{end}}' \
+        "$container_id" >&2 2>/dev/null || true
+    network="$(astra_docker inspect --format '{{range $name, $net := .NetworkSettings.Networks}}{{$name}}{{end}}' \
+        "$container_id" 2>/dev/null || true)"
+    if [[ -n "$network" ]]; then
+        echo "Контейнеры в сети $network:" >&2
+        astra_docker network inspect --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}' \
+            "$network" >&2 2>/dev/null || true
+    fi
 }
 
 start_project() {

@@ -14,10 +14,12 @@ services:
     command:
       - |
         attempt=0
-        until psql -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null 2>&1; do
+        until error=$$(psql -v ON_ERROR_STOP=1 -c 'SELECT 1' 2>&1 >/dev/null); do
           attempt=$$((attempt + 1))
           if [ "$$attempt" -ge 30 ]; then
             echo "PostgreSQL не принимает подключения после 30 попыток" >&2
+            echo "Последняя ошибка psql: $$error" >&2
+            echo "Адрес $$PGHOST в сети Docker: $$(getent hosts "$$PGHOST" || echo 'не найден')" >&2
             exit 2
           fi
           sleep 1
