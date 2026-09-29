@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { DatasetImportController } from "../hooks/useDatasetImport"
 import { navigate, routeHref } from "../state/navigation"
+import { ForecastPanel } from "./ForecastPanel"
 import "./DatasetImportPanel.css"
 
 const number = (value: number) => value.toLocaleString("ru-RU")
@@ -15,7 +16,7 @@ const roleNames: Record<string, string> = {
   events: "Журнал событий", prepared_events: "Подготовленный журнал", states: "Справочник состояний",
 }
 
-export default function DatasetImportPanel({ controller }: { controller: DatasetImportController }) {
+export default function DatasetImportPanel({ controller, userId }: { controller: DatasetImportController; userId: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { files, setFiles, dataset, busy, preparing, percent, currentFile, error,
     setError, importFiles, retryPreparation, retryML, discardUpload, clearDataset } = controller
@@ -119,6 +120,9 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
               </div>
             </div>}
           </section>}
+
+          {dataset && dataset.status !== "uploading" && dataset.status !== "error" &&
+            <ForecastPanel datasetId={dataset.id} userId={userId} datasetReady={dataset.status === "ready"}/>}
         </div>
 
         <aside className="dataset-help" aria-labelledby="dataset-help-title">
@@ -128,7 +132,7 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
             <li><strong>Справочник каналов</strong><span>Связывает события с датчиками.</span></li>
             <li><strong>Справочник объектов</strong><span>Указывает, где расположены датчики.</span></li>
           </ol>
-          <div className="dataset-help-note"><strong>После загрузки</strong><p>Система объединит таблицы, удалит дубли, подготовит признаки и проверит доступ ML-движка к данным.</p></div>
+          <div className="dataset-help-note"><strong>После загрузки</strong><p>Система объединит таблицы, удалит дубли, подготовит признаки и проверит доступ ML-движка к данным. Прогноз модели запускается отдельной кнопкой после подготовки; во время подготовки он недоступен.</p></div>
           <p className="dataset-note">Объём базы зависит от выбранных таблиц. Исходные и очищенные события используют общее хранилище. Перед загрузкой проверяется запас места для данных и временных файлов обработки.</p>
         </aside>
       </div>

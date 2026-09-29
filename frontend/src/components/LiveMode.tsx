@@ -14,7 +14,7 @@ export function LiveMode({ user, route }: { user: User; route: Route }) {
   // upload can never display cached sensors/checks from the preceding database.
   return <>
     {datasetId && <LiveWorkspace key={datasetId} datasetId={datasetId} user={user} route={route}/>}
-    {route.page === "data" && user.role === "dispatcher" ? <DatasetImportPanel controller={controller}/>
+    {route.page === "data" && user.role === "dispatcher" ? <DatasetImportPanel controller={controller} userId={user.id}/>
       : !datasetId ? controller.restoring ? <main className="warnings-page"><section className="section-empty" role="status">Проверяем загруженные данные…</section></main>
         : controller.error ? <main className="warnings-page"><section className="section-empty" role="alert"><h2>Не удалось открыть базу данных</h2><p>{controller.error}</p><button onClick={() => window.location.reload()}>Повторить</button></section></main>
           : <EmptyWorkspace page={route.page} technician={user.role === "technician"}/>

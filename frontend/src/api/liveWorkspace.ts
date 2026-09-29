@@ -18,6 +18,7 @@ export interface ForecastRecord {
 export interface ForecastJob {
   id: string; status: "running" | "stopping" | "stopped" | "completed" | "interrupted" | "error"
   total: number; completed: number; predicted: number; skipped: number; failed: number; error: string | null
+  created_at?: string; updated_at?: string
 }
 export interface Forecasts { job: ForecastJob | null; predictions: ForecastRecord[] }
 export interface SensorEvent {

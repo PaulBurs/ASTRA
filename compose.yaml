@@ -38,6 +38,8 @@ services:
       retries: 20
   postgres:
     image: postgres:16
+    # Docker's 64 MB /dev/shm is too small for parallel index builds of the import.
+    shm_size: 1g
 
     environment:
       POSTGRES_DB: astra
@@ -124,10 +126,11 @@ services:
 
       ML_SERVICE_URL: http://ml:9000
       FORECAST_WORKERS: ${FORECAST_WORKERS:-4}
-      FORECAST_BATCH_SIZE: ${FORECAST_BATCH_SIZE:-16}
+      FORECAST_BATCH_SIZE: ${FORECAST_BATCH_SIZE:-256}
       DATASET_UPLOAD_DIR: /data/uploads
-      DATASET_BUILD_WORKERS: ${DATASET_BUILD_WORKERS:-2}
-      DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-64}
+      # empty = half of the CPU threads (2..8)
+      DATASET_BUILD_WORKERS: ${DATASET_BUILD_WORKERS:-}
+      DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-128}
       DATASET_STORAGE_EXPANSION_FACTOR: ${DATASET_STORAGE_EXPANSION_FACTOR:-8}
 
     ports:
