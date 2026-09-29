@@ -18,6 +18,8 @@ case "$1" in
   context) echo "${FAKE_CONTEXT:-default}"; exit 0 ;;
   inspect)
     case "$*" in
+      *'{{.Name}}'*) [[ "$*" == *stale-temp* ]] && echo /5a6011bb9d2f_astra-source-agent-1 || echo /astra-backend-1 ;;
+      *State.Running*stale-temp*) echo false ;;
       *State.Pid*) echo 4242 ;;
       *State.Running*) [[ -f "$FAKE_RECOVERY_STATE" ]] && echo false || echo true ;;
       *) echo "${FAKE_HEALTH:-healthy}" ;;
@@ -36,6 +38,10 @@ case "$1" in
       echo 'service "db-init" did not complete successfully: exit 2' >&2
       exit 2
     fi
+    if [[ "$1" == up && ${FAIL_UP_CONFLICT:-0} == 1 && ! -f "$FAKE_RECOVERY_STATE" ]]; then
+      echo 'Error response from daemon: Error when allocating new name: Conflict. The container name "/astra-source-agent-1" is already in use by container "c1944c596325". You have to remove (or rename) that container to be able to reuse that name.' >&2
+      exit 1
+    fi
     if [[ "$1" == up && ${FAIL_UP_PERMISSION:-0} == 1 && ! -f "$FAKE_RECOVERY_STATE" ]]; then
       echo 'Error response from daemon: cannot stop container: abc123: permission denied' >&2
       exit 24
@@ -46,6 +52,7 @@ case "$1" in
       exit 0
     fi
     if [[ "$1" == ps && "$*" == *'-a -q'* ]]; then
+      [[ ${STALE_RECREATE:-0} == 1 ]] && echo 'stale-temp'
       [[ ${NO_PROJECT_CONTAINERS:-0} == 1 ]] || echo 'stuck-astra'
     elif [[ "$1" == ps && ${2:-} == -q ]]; then echo "fake-$3"; fi
     exit 0 ;;
@@ -195,6 +202,26 @@ exec "$@"
         self.assertIn('docker rm -f stuck-astra', calls)
         self.assertNotIn('systemctl restart', calls)
         self.assertIn('Контейнеры ASTRA восстановлены', result.stdout)
+
+    def test_name_conflict_after_failed_recreate_recovers_project_containers(self):
+        # The old container kept the service name, so Compose could not rename its replacement.
+        result = self.run_script(FAIL_UP_CONFLICT='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertEqual(calls.count('docker compose up -d --build'), 2)
+        self.assertIn('kill -TERM 4242', calls)
+        self.assertIn('docker rm -f stuck-astra', calls)
+        self.assertIn('имя занято старым контейнером', result.stderr)
+        self.assertIn('ASTRA готова:', result.stdout)
+
+    def test_stopped_leftovers_of_an_interrupted_recreate_are_removed_before_start(self):
+        result = self.run_script(STALE_RECREATE='1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        self.assertIn('docker rm stale-temp', calls)
+        self.assertNotIn('docker rm stuck-astra', calls)          # a normal container is kept
+        self.assertLess(calls.index('docker rm stale-temp'), calls.index('compose up'))
+        self.assertIn('5a6011bb9d2f_astra-source-agent-1', result.stdout)
 
     def test_apparmor_recovery_does_not_touch_unknown_containers(self):
         result = self.run_script(FAIL_UP_PERMISSION='1', NO_PROJECT_CONTAINERS='1')

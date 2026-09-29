@@ -82,6 +82,7 @@ show_start_failure() {
 
 start_project() {
     local app_url api_url
+    astra_remove_stale_recreates
     reset_db_init
     if [[ "$COMMAND" == quick ]]; then
         if ! astra_compose_with_recovery up -d; then
