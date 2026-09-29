@@ -46,7 +46,8 @@ def copy_references(conn, schema: str, table: str, path: Path, columns: list[str
                 copy.write_row(tuple(row[c] or None for c in columns))
 
 
-def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
+def build_dataset(engine, dataset_id, files: list[dict], progress,
+                  consumed=lambda file: None) -> dict:
     schema = schema_name(dataset_id)
     settings = BuildSettings.from_env()
     progress("Подготовка таблиц", {})
@@ -60,7 +61,8 @@ def build_dataset(engine, dataset_id, files: list[dict], progress) -> dict:
             execute_script(conn, staging.replace("CREATE TABLE", "CREATE UNLOGGED TABLE"), schema)
             set_autovacuum(conn, schema, False)
             # Journals are parsed by several processes in parallel (see ingest.py).
-            latest, source_years = load_events(conn, url, schema, files, settings.workers, progress, counts)
+            latest, source_years = load_events(
+                conn, url, schema, files, settings.workers, progress, counts, consumed)
             if not counts["source_rows"]:
                 raise ValueError("Выбранные журналы не содержат событий")
 

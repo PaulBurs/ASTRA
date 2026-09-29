@@ -31,11 +31,14 @@ class DatasetImportService:
         return self.root / UUID(str(dataset_id)).hex
 
     def require_free_space(self, source_bytes: int, *, sources_uploaded: bool) -> None:
-        # Includes uploaded CSV, logged event storage, ML features, indexes and
-        # temporary sorts. Compact imports share raw/clean event storage.
-        factor = max(2.0, float(os.getenv("DATASET_STORAGE_EXPANSION_FACTOR", "8")))
+        # Measured peak (2 years, 3.8 GB CSV): 15.7 GB. Journals are deleted once loaded,
+        # so the peak is either the staging (2.8x CSV) plus the one year being compacted,
+        # or the clean events being indexed (3.35x CSV). The factor covers the growing
+        # part; the fixed headroom covers one compacted year, WAL and ML features, which
+        # are kept for DATASET_FEATURE_DAYS only and do not grow with history.
+        factor = max(2.0, float(os.getenv("DATASET_STORAGE_EXPANSION_FACTOR", "3.4")))
         reserve = int(os.getenv("DATASET_STORAGE_RESERVE_BYTES", str(2 * GIB)))
-        database_bytes = source_bytes * (factor - (1 if sources_uploaded else 0))
+        database_bytes = source_bytes * (factor - (1 if sources_uploaded else 0)) + 4 * GIB
         required = int(database_bytes) + reserve
         free = shutil.disk_usage(self.root).free
         if required > free:
@@ -219,6 +222,9 @@ class DatasetImportService:
                 counts = build_dataset(
                     self.engine, dataset_id, files,
                     lambda stage, counts: update_dataset(self.engine, dataset_id, stage=stage, counts=counts),
+                    # A loaded journal is no longer read, even on retry (uploads are
+                    # cleared on failure too), so free its disk space immediately.
+                    lambda file: Path(file["path"]).unlink(missing_ok=True),
                 )
                 update_dataset(self.engine, dataset_id, status="prepared", counts=counts,
                                stage="Данные подготовлены. Проверка чтения ML-движком")

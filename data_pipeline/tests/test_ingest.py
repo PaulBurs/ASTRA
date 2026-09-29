@@ -4,9 +4,12 @@ import unittest
 from pathlib import Path
 
 import random
+from concurrent.futures import Future
 
 from astra_pipeline.csv_input import PREPARED, RAW, EventParser, iter_events, prepared_event
-from astra_pipeline.ingest import _header, _ranges, parse_chunk, single_line_records, splittable
+from astra_pipeline.ingest import (
+    _header, _load_parallel, _ranges, parse_chunk, single_line_records, splittable,
+)
 
 
 def journal(rows, header=",".join(RAW)):
@@ -96,3 +99,23 @@ class EventParserTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConsumedJournalTest(unittest.TestCase):
+    def test_journal_is_reported_once_after_its_last_chunk(self):
+        order = []
+
+        class Pool:
+            def submit(self, function, url, schema, path, *rest):
+                future = Future()
+                future.set_result((1, set(), {}))
+                order.append(("chunk", path))
+                return future
+
+        jobs = [("a.csv", "events", "", 0, 1), ("a.csv", "events", "", 1, 2), ("b.csv", "events", "", 0, 1)]
+        counts = {"source_rows": 0}
+        _load_parallel(Pool(), "", "", jobs, lambda *args: None, counts, {}, set(),
+                       lambda path: order.append(("consumed", path)))
+        consumed = [path for kind, path in order if kind == "consumed"]
+        self.assertEqual(sorted(consumed), ["a.csv", "b.csv"])
+        self.assertEqual(counts["source_rows"], 3)

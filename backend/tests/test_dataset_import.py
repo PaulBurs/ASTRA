@@ -283,3 +283,24 @@ def test_raw_adapter_uses_pipeline_parser(value, kind, number):
     result = prepared_event(row, "events")
     assert result[2] == "t"
     assert result[5:7] == (kind, number)
+
+
+def test_free_space_estimate_follows_measured_peak(tmp_path, monkeypatch):
+    # 15 GB of journals: ~57 GB before upload, ~42 GB more once uploaded (was 122 GB).
+    from collections import namedtuple
+    from fastapi import HTTPException
+    from app.services import dataset_import_service as module
+
+    gib = module.GIB
+    usage = namedtuple("usage", "total used free")
+    service = DatasetImportService(engine, tmp_path)
+    monkeypatch.delenv("DATASET_STORAGE_EXPANSION_FACTOR", raising=False)
+    monkeypatch.delenv("DATASET_STORAGE_RESERVE_BYTES", raising=False)
+    for free, uploaded, ok in ((58, False, True), (56, False, False), (43, True, True), (41, True, False)):
+        monkeypatch.setattr(module.shutil, "disk_usage", lambda _: usage(0, 0, free * gib))
+        if ok:
+            service.require_free_space(15 * gib, sources_uploaded=uploaded)
+        else:
+            with pytest.raises(HTTPException) as error:
+                service.require_free_space(15 * gib, sources_uploaded=uploaded)
+            assert error.value.status_code == 507

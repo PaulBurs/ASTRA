@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+from collections import Counter
 from concurrent.futures import FIRST_EXCEPTION, ProcessPoolExecutor, wait
 from multiprocessing import get_context
 from pathlib import Path
@@ -143,8 +144,12 @@ def _merge(latest: dict, part: dict) -> None:
             latest[channel] = row
 
 
-def load_events(conn, url: str, schema: str, files: list[dict], workers: int, progress, counts):
-    """Load all event journals. -> (latest event per channel, set of years)."""
+def load_events(conn, url: str, schema: str, files: list[dict], workers: int, progress, counts,
+                consumed=lambda file: None):
+    """Load all event journals. -> (latest event per channel, set of years).
+
+    `consumed(file)` is called once a journal is fully loaded, so its upload can be
+    removed before the others finish: CSV and staging never coexist in full."""
     latest, years = {}, set()
     events = [file for file in files if file["role"] in {"events", "prepared_events"}]
     parallel, sequential = [], []
@@ -160,7 +165,9 @@ def load_events(conn, url: str, schema: str, files: list[dict], workers: int, pr
                     single_line_records, *zip(*[(p, h, a, b) for p, _, h, a, b in ranges])))
                 (parallel.extend(ranges) if ok else sequential.append(file))
             if parallel:
-                _load_parallel(pool, url, schema, parallel, progress, counts, latest, years)
+                owners = {str(Path(file["path"])): file for file in events}
+                _load_parallel(pool, url, schema, parallel, progress, counts, latest, years,
+                               lambda path: consumed(owners[path]))
     else:
         sequential = events
     for file in sequential:
@@ -176,13 +183,16 @@ def load_events(conn, url: str, schema: str, files: list[dict], workers: int, pr
                 _merge(latest, {row[1]: row})
                 if counts["source_rows"] % 100_000 == 0:
                     progress(stage, counts)
+        consumed(file)
     return latest, years
 
 
-def _load_parallel(pool, url, schema, jobs, progress, counts, latest, years):
+def _load_parallel(pool, url, schema, jobs, progress, counts, latest, years, consumed):
     done = 0
+    remaining = Counter(job[0] for job in jobs)
     progress(f"Чтение журналов: 0 из {len(jobs)} частей", counts)
-    pending = {pool.submit(load_chunk, url, schema, *job) for job in jobs}
+    owner = {pool.submit(load_chunk, url, schema, *job): job[0] for job in jobs}
+    pending = set(owner)
     while pending:
         finished, pending = wait(pending, return_when=FIRST_EXCEPTION)
         for future in finished:
@@ -196,3 +206,6 @@ def _load_parallel(pool, url, schema, jobs, progress, counts, latest, years):
             _merge(latest, part_latest)
             done += 1
             progress(f"Чтение журналов: {done} из {len(jobs)} частей", counts)
+            remaining[owner[future]] -= 1
+            if not remaining[owner[future]]:
+                consumed(owner[future])

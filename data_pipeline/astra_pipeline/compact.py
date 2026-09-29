@@ -31,9 +31,11 @@ def compact_events(conn, url, schema, settings, source_years, progress, counts):
     channels = {r[0] for r in conn.execute(f'SELECT "ид_канала_данных" FROM {schema}.ref_channels')}
     inventory = {}
     # Duplicates are always within one channel, so a year splits into independent channel
-    # groups: a few years still keep every worker busy.
+    # groups. Every worker takes a group of the same year: years are compacted one after
+    # another, and each year's staging is truncated before the next one grows, so peak
+    # disk use is the staging plus about one clean year, whatever the history length.
     years = sorted(source_years)
-    groups = max(1, settings.workers // max(1, len(years)))
+    groups = max(1, settings.workers)
     remaining = {year: groups for year in years}
 
     def compact(worker, job):
