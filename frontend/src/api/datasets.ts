@@ -43,6 +43,14 @@ export async function discardDataset(id: string): Promise<void> {
   if (!response.ok) await responseData(response)
 }
 
+export async function deletePreparedDataset(id: string, employeeId: string): Promise<void> {
+  const response = await fetch(`/api/datasets/${encodeURIComponent(id)}?confirm_delete=true`, {
+    method: "DELETE",
+    headers: { "X-Employee-ID": employeeId },
+  })
+  if (!response.ok) await responseData(response)
+}
+
 export async function prepareDataset(id: string): Promise<Dataset> {
   return responseData(await fetch(`/api/datasets/${encodeURIComponent(id)}/prepare`, { method: "POST" }))
 }

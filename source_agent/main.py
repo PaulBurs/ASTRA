@@ -23,12 +23,11 @@ sys.path.insert(
     0,
     str(BACKEND_ROOT),
 )
+sys.path.insert(0, str(PROJECT_ROOT))
+from source_agent.paths import resolve_source_path
 
 CACHE_ROOT = (
-    Path.home()
-    / ".cache"
-    / "astra"
-    / "source-agent"
+    Path(os.getenv("SOURCE_CACHE_PATH", str(Path.home() / ".cache" / "astra" / "source-agent")))
 )
 
 os.environ[
@@ -235,14 +234,11 @@ def connect_source(
     global source_sensor_count
 
     try:
-        source_path = (
-            Path(request.path)
-            .expanduser()
-            .resolve(strict=True)
-        )
+        source_path = resolve_source_path(request.path)
     except (
         OSError,
         RuntimeError,
+        ValueError,
     ) as error:
         raise HTTPException(
             status_code=400,
@@ -531,4 +527,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=9100,
     )
-

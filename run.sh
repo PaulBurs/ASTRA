@@ -9,4 +9,4 @@ ROOT_DIR="$(
 )"
 
 
-exec "$ROOT_DIR/astra.sh" run
+exec "$ROOT_DIR/astra.sh" "$@"

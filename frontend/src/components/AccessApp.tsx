@@ -5,7 +5,6 @@ import App from "../App"
 import { demoAuth, demoUsers, type AuthRepository, type User } from "../api/auth"
 import { createDemoRepository, type WorkspaceRepository } from "../api/workspace"
 import { useRoute } from "../state/navigation"
-import { WarningsPage } from "./WarningsPage"
 import "./LoginPage.css"
 
 function replacePath(path: string) {
@@ -42,7 +41,7 @@ export function AccessApp({ auth = demoAuth, repositoryFor = defaultRepository, 
       catch (reason) { setError(reason instanceof Error ? reason.message : "Не удалось войти. Попробуйте ещё раз.") }
       finally { setBusy(false) }
     }}><label htmlFor="employee-id">ID сотрудника</label><input id="employee-id" name="employeeId" autoComplete="username" autoFocus required maxLength={64} placeholder="Например, 2001" aria-describedby={error ? "login-error" : undefined} aria-invalid={!!error} disabled={busy}/>{error && <p id="login-error" className="login-error" role="alert">{error}</p>}<button disabled={busy} type="submit">{busy ? "Входим…" : "Войти"}</button></form>{auth.kind === "demo" && <div className="login-demo"><h3>Доступные демосотрудники</h3>{demoUsers.map(u=><div key={u.id}><code>{u.id}</code><span>{u.name}<small>{u.role === "dispatcher" ? "Диспетчер" : "Техспециалист"}</small></span></div>)}<p>Вход без пароля. Только тестовые данные.</p></div>}</section></main>
-  const shell = user.role === "technician" ? <WarningsPage key={user.id} route={["checks", "map", "archive"].includes(route.page) ? route : {page:"checks"}} repository={repository} user={user} onLogout={logout} logoutBusy={busy}/> : <App key={user.id} user={user} repository={repository!} onLogout={logout} logoutBusy={busy}/>
+  const shell = <App key={user.id} user={user} repository={repository!} onLogout={logout} logoutBusy={busy}/>
   return <DraftContext.Provider value={drafts}>{shell}{error && <div className="auth-error" role="alert">{error}<button onClick={() => setError("")}>Закрыть</button></div>}</DraftContext.Provider>
 }
 function defaultRepository(user: User) { return createDemoRepository(undefined, user) }

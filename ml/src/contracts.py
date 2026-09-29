@@ -51,6 +51,22 @@ class PredictionOutput(BaseModel):
     model_version: str
 
 
+class BatchPredictionInput(BaseModel):
+    # the service checks ML_MAX_BATCH_SENSORS (default 1024); this is the hard upper bound
+    sensor_ids: list[int] = Field(min_length=1, max_length=4096)
+
+
+class BatchPredictionItem(BaseModel):
+    sensor_id: int
+    status: Literal['ready', 'skipped', 'error']
+    result: PredictionOutput | None = None
+    error: str | None = None
+
+
+class BatchPredictionOutput(BaseModel):
+    predictions: list[BatchPredictionItem]
+
+
 class HealthOutput(BaseModel):
     available: bool
     model_version: str

@@ -214,152 +214,105 @@ ASTRA/
 - GitHub Actions
 - Linux / Fedora как основная локальная среда разработки
 
-> В проекте используется команда `docker-compose` с дефисом.
+> Скрипты проекта автоматически поддерживают оба варианта Docker Compose:
+> современный плагин `docker compose` и старую команду `docker-compose`.
+> Дополнительная shell-функция или alias не требуется.
 
 ---
 
 # Быстрый старт
 
-## 1. Клонировать репозиторий
+На компьютере нужен Bash. Docker Engine с Docker Compose `./astra.sh` в Linux
+установит сам, если их нет (см. ниже). Локальные Node.js, npm, Python, `.venv`
+и PostgreSQL для запуска не требуются.
 
-```bash
-git clone https://github.com/PaulBurs/ASTRA.git
-cd ASTRA
-```
-
-## 2. Подготовить backend
-
-```bash
-cd backend
-python3.13 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pip install --no-deps -e ../data_pipeline
-```
-
-Создать локальный `.env`:
-
-```bash
-cp .env.example .env
-```
-
-Пример:
-
-```env
-DATABASE_URL=postgresql+psycopg://astra:astra@localhost:5432/astra
-```
-
-Вернуться в корень:
-
-```bash
-cd ..
-```
-
-## 3. Подготовить frontend
-
-```bash
-cd frontend
-npm ci
-cp .env.example .env
-cd ..
-```
-
-Пример frontend `.env`:
-
-```env
-VITE_API_URL=http://127.0.0.1:8000
-```
-
-## 4. Первый запуск
-
-При первом запуске Docker-образы backend/frontend ещё отсутствуют, поэтому используется полная сборка:
-
-```bash
-./astra.sh rebuild
-```
-
-После того как образы уже существуют, обычный запуск:
+После клонирования репозитория из его корня выполните:
 
 ```bash
 ./astra.sh
 ```
 
----
+Первый запуск соберёт образы, установит зависимости внутри контейнеров, поднимет
+PostgreSQL, создаст пустую схему и запустит Source Agent, ML, backend и frontend.
+Нужен интернет для загрузки базовых образов и зависимостей. Последующие сборки
+используют Docker-кэш. Тесты при обычном запуске не выполняются.
+
+Если текущему пользователю недоступен системный Docker socket, скрипт выполнит
+Docker-команды через `sudo` и при необходимости запросит пароль. Запускать весь
+скрипт через `sudo`, менять права на `docker.sock` или вручную объявлять shell-функции
+не требуется. Если служба системного Docker остановлена, скрипт попытается запустить
+её через systemd. Для недоступного rootless/remote/Desktop context выводится ошибка:
+скрипт не переключает его на другой Docker.
+
+Если Docker ещё не установлен, `./astra.sh` в Linux установит его сам:
+скачает официальный скрипт [get.docker.com](https://get.docker.com) (Ubuntu, Debian,
+Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin через `sudo`,
+включит службу `docker` и добавит пользователя в группу `docker` (без `sudo` —
+после повторного входа в систему; текущий запуск продолжится через `sudo`).
+Если Docker есть, а Docker Compose нет, скрипт установит официальный Compose plugin
+в `/usr/local/lib/docker/cli-plugins`. Для установки нужны интернет, `curl` или
+`wget` и пароль администратора.
+
+Автоустановку можно отключить: `ASTRA_AUTO_INSTALL_DOCKER=0 ./astra.sh`. В macOS
+и Windows установите [Docker Desktop](https://docs.docker.com/desktop/) вручную.
+
+После проверки готовности сервисов откроется приложение:
+
+- Frontend: http://127.0.0.1:5173
+- API/Swagger: http://127.0.0.1:8000/docs
+
+В режиме v1.0.1 данные появятся после загрузки CSV через вкладку «Данные».
+Демонстрационные строки при запуске в PostgreSQL не добавляются.
 
 # Запуск одной командой
 
-В корне проекта находится:
-
-```text
-astra.sh
+```bash
+./astra.sh           # обычный запуск; сборка с кэшем
+./astra.sh quick     # ежедневный запуск готовых образов
+./astra.sh check     # backend-тесты + frontend build/lint/test в контейнерах
+./astra.sh rebuild   # пересборка образов и запуск
+./astra.sh stop      # остановка с сохранением БД
+./astra.sh status    # состояние сервисов
+./astra.sh logs      # журнал сервисов
 ```
 
-Обычный запуск:
+`./run.sh` вызывает тот же launcher и передаёт аргументы.
+`./build.sh` выполняет `./astra.sh check`. Проверки не добавляют тестовые датчики
+в пользовательскую БД и не останавливают уже работающие сервисы.
+
+`quick` соберёт недостающие образы на новом компьютере автоматически. После
+обновления зависимостей или Dockerfile используйте обычный запуск или `rebuild`.
+Настройки для Compose можно поместить в необязательный корневой `.env`
+(пример — `.env.example`). Объявлять `DATABASE_URL` для штатного запуска не нужно.
+
+Для запуска без открытия браузера:
 
 ```bash
-./astra.sh
+ASTRA_OPEN_BROWSER=0 ./astra.sh
 ```
 
-Скрипт выполняет:
+Проверка готовности ограничена 180 секундами после запуска контейнеров; при ошибке
+выводятся состояние и последние логи. Лимит можно изменить переменной
+`ASTRA_WAIT_TIMEOUT`. Загрузка и сборка образов в этот лимит не входят.
 
-```text
-проверка окружения
-       ↓
-запуск PostgreSQL
-       ↓
-ожидание готовности PostgreSQL
-       ↓
-pytest
-       ↓
-npm run build
-       ↓
-запуск backend + frontend
-       ↓
-проверка API и frontend
-       ↓
-открытие браузера
+## Каталог для Source Agent
+
+Source Agent также работает в Docker и доступен backend по внутренней сети.
+Загрузка CSV через браузер работает с файлами из любой доступной пользователю папки.
+Для старого API подключения готовой папки по пути по умолчанию доступен каталог
+`DJKH_transport/` внутри проекта, смонтированный только для чтения в `/data/source`.
+
+Для другой папки укажите абсолютный путь в корневом `.env`:
+
+```dotenv
+ASTRA_SOURCE_DIR=/home/user/data/archive
 ```
 
-После запуска доступны:
+После этого выполните `./astra.sh`. API принимает исходный абсолютный путь или
+путь внутри `/data/source`; кэш Source Agent сохраняется в отдельном Docker volume.
 
-```text
-Frontend: http://127.0.0.1:5173
-API:      http://127.0.0.1:8000
-Swagger:  http://127.0.0.1:8000/docs
-```
-
-## Полная пересборка
-
-Использовать после изменения:
-
-- `Dockerfile`;
-- `requirements.txt`;
-- `package.json` / `package-lock.json`;
-- Docker-конфигурации, влияющей на образ.
-
-```bash
-./astra.sh rebuild
-```
-
-Не нужно делать полную пересборку после обычного изменения `.py`, `.ts`, `.tsx` или `.css`.
-
-## Остановить проект
-
-```bash
-./astra.sh stop
-```
-
-## Состояние сервисов
-
-```bash
-./astra.sh status
-```
-
-## Логи
-
-```bash
-./astra.sh logs
-```
+Локальные команды npm/pip/venv в дальнейших разделах нужны только при разработке
+вне контейнеров, а не для обычного запуска проекта.
 
 ---
 
@@ -978,7 +931,7 @@ backend/.venv/bin/python -m pytest -v
 
 ```bash
 cd ..
-docker-compose up -d postgres
+docker compose up -d postgres
 ```
 
 После чего:
@@ -1376,31 +1329,31 @@ http://127.0.0.1:8000/docs
 Состояние Docker:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 Все контейнеры, включая остановленные:
 
 ```bash
-docker-compose ps -a
+docker compose ps -a
 ```
 
 Backend logs:
 
 ```bash
-docker-compose logs -f backend
+docker compose logs -f backend
 ```
 
 Frontend logs:
 
 ```bash
-docker-compose logs -f frontend
+docker compose logs -f frontend
 ```
 
 PostgreSQL logs:
 
 ```bash
-docker-compose logs -f postgres
+docker compose logs -f postgres
 ```
 
 Backend health:
@@ -1496,14 +1449,14 @@ PR считается технически готовым, если:
 ```text
 1. Прочитай README.
 2. Клонируй репозиторий.
-3. Создай backend/.venv и установи requirements.
-4. Выполни npm ci в frontend.
-5. Создай .env из .env.example.
-6. Первый раз запусти ./astra.sh rebuild.
+3. Установи Docker Engine и Docker Compose plugin, если их ещё нет.
+4. Выполни ./astra.sh — зависимости устанавливаются внутри контейнеров.
+5. Корневой .env из .env.example нужен только для нестандартных настроек.
+6. Для ежедневного запуска используй ./astra.sh quick.
 7. Создай свою feature-ветку.
 8. Работай только через Pull Request.
 9. Не пушь секреты и большие данные.
-10. Перед PR запусти pytest и npm run build.
+10. Перед PR запусти ./astra.sh check.
 ```
 
 ---

@@ -1,5 +1,7 @@
+import { useState } from "react"
 import type { DatasetImportController } from "../hooks/useDatasetImport"
 import { navigate, routeHref } from "../state/navigation"
+import { ForecastPanel } from "./ForecastPanel"
 import "./DatasetImportPanel.css"
 
 const number = (value: number) => value.toLocaleString("ru-RU")
@@ -14,9 +16,10 @@ const roleNames: Record<string, string> = {
   events: "Журнал событий", prepared_events: "Подготовленный журнал", states: "Справочник состояний",
 }
 
-export default function DatasetImportPanel({ controller }: { controller: DatasetImportController }) {
+export default function DatasetImportPanel({ controller, userId }: { controller: DatasetImportController; userId: string }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const { files, setFiles, dataset, busy, preparing, percent, currentFile, error,
-    setError, importFiles, retryPreparation, retryML, discardUpload } = controller
+    setError, importFiles, retryPreparation, retryML, discardUpload, clearDataset } = controller
   const ready = dataset?.status === "ready" || dataset?.status === "prepared"
   const allFilesUploaded = dataset?.status === "uploading"
     && dataset.files.length > 0
@@ -99,15 +102,27 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
               ? <p className="dataset-ready">Все файлы загружены. Повторная загрузка не требуется. Запустите подготовку, когда завершится обработка предыдущего набора.</p>
               : <p className="dataset-note">Загрузка файлов не завершена. Удалите этот набор перед новой загрузкой.</p>)}
             <div className="dataset-actions">
-              {ready && <a className="dataset-secondary" href={routeHref("sensors")} onClick={event => {
+              {ready && <a className="dataset-secondary" href={routeHref("warnings")} onClick={event => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-                event.preventDefault(); navigate("sensors")
+                event.preventDefault(); navigate("warnings")
               }}>Открыть датчики</a>}
               {allFilesUploaded && <button type="button" disabled={busy} onClick={() => void retryPreparation()}>Запустить подготовку</button>}
               {dataset.status === "prepared" && dataset.error && <button type="button" disabled={busy} onClick={() => void retryML()}>Повторить проверку ML</button>}
               {["uploading", "error"].includes(dataset.status) && !busy && <button type="button" onClick={() => void discardUpload()}>Удалить незавершённую загрузку</button>}
+              {ready && <button className="dataset-danger" type="button" disabled={busy} onClick={() => setConfirmDelete(true)}>Очистить базу датчиков</button>}
             </div>
+            {ready && confirmDelete && <div className="dataset-delete-confirm" role="alertdialog" aria-labelledby="dataset-delete-title" aria-describedby="dataset-delete-description">
+              <strong id="dataset-delete-title">Удалить всю загруженную базу?</strong>
+              <p id="dataset-delete-description">Будут удалены датчики, события, подготовленные признаки, прогнозы, проверки и загруженные файлы. Восстановить их можно будет только повторной загрузкой таблиц.</p>
+              <div className="dataset-actions">
+                <button className="dataset-danger-confirm" type="button" disabled={busy} onClick={() => { setConfirmDelete(false); void clearDataset() }}>{busy ? "Удаление…" : "Да, удалить базу"}</button>
+                <button type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>Отмена</button>
+              </div>
+            </div>}
           </section>}
+
+          {dataset && dataset.status !== "uploading" && dataset.status !== "error" &&
+            <ForecastPanel datasetId={dataset.id} userId={userId} datasetReady={dataset.status === "ready"}/>}
         </div>
 
         <aside className="dataset-help" aria-labelledby="dataset-help-title">
@@ -117,7 +132,7 @@ export default function DatasetImportPanel({ controller }: { controller: Dataset
             <li><strong>Справочник каналов</strong><span>Связывает события с датчиками.</span></li>
             <li><strong>Справочник объектов</strong><span>Указывает, где расположены датчики.</span></li>
           </ol>
-          <div className="dataset-help-note"><strong>После загрузки</strong><p>Система объединит таблицы, удалит дубли, подготовит признаки и проверит доступ ML-движка к данным.</p></div>
+          <div className="dataset-help-note"><strong>После загрузки</strong><p>Система объединит таблицы, удалит дубли, подготовит признаки и проверит доступ ML-движка к данным. Прогноз модели запускается отдельной кнопкой после подготовки; во время подготовки он недоступен.</p></div>
           <p className="dataset-note">Объём базы зависит от выбранных таблиц. Исходные и очищенные события используют общее хранилище. Перед загрузкой проверяется запас места для данных и временных файлов обработки.</p>
         </aside>
       </div>

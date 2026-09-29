@@ -68,3 +68,12 @@ class HTTPMLService(MLService):
         )
         response.raise_for_status()
         return response.json()
+
+    def predict_dataset_batch(self, dataset_id: UUID, sensor_ids: list[int]) -> dict:
+        response = httpx.post(
+            f"{self.base_url}/datasets/{dataset_id}/predict-batch",
+            json={"sensor_ids": sensor_ids},
+            timeout=max(self.timeout_seconds, 300.0),
+        )
+        response.raise_for_status()
+        return response.json()

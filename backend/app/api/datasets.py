@@ -1,7 +1,7 @@
 from pathlib import PurePath
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.db.database import engine
@@ -51,8 +51,17 @@ def dataset_status(dataset_id: UUID, service=Depends(get_import_service)):
 
 
 @router.delete("/{dataset_id}", status_code=204)
-def discard_dataset(dataset_id: UUID, service=Depends(get_import_service)):
-    service.discard(dataset_id)
+def discard_dataset(
+    dataset_id: UUID,
+    confirm_delete: bool = False,
+    x_employee_id: str | None = Header(default=None),
+    service=Depends(get_import_service),
+):
+    # Prepared datasets require an explicit second signal from the confirmation
+    # UI. Incomplete uploads retain the existing one-click cleanup path.
+    if confirm_delete and x_employee_id != "1001":
+        raise HTTPException(403, "Удаление базы доступно только диспетчеру")
+    service.discard(dataset_id, include_prepared=confirm_delete)
 
 
 @router.put("/{dataset_id}/files/{index}")
