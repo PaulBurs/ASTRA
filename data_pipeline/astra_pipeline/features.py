@@ -2,12 +2,13 @@
 
 Do not reimplement the formulas: extract the INSERTs from the team's versioned
 script. Splitting by entire channels preserves window history and timestamp peers.
+The tasks of a year run as soon as that year and every earlier one are cleaned (stream.py).
 """
 from dataclasses import dataclass
 import os
 import re
 
-from .parallel import run_jobs, set_autovacuum
+from .parallel import set_autovacuum
 
 MIN_TASK_ROWS = 100_000
 # ~1M rows per task: its sort fits in work_mem instead of spilling to disk, and many
@@ -58,46 +59,77 @@ def channel_batches(channel_counts, workers):
     return [batch for batch in batches if batch]
 
 
-def build_features(conn, url, schema, settings, inventory, script, execute, progress, counts):
+def prepare_features(conn, schema, settings, script, execute):
+    """Code tables and the empty dataset_ml: they depend only on the reference tables."""
     setup, blocks, finish = feature_plan(script)
     execute(conn, setup, schema)
     set_autovacuum(conn, schema, False)
     settings.configure(conn)
     conn.execute(f"ANALYZE {schema}.map_channel")
     codes = dict(conn.execute(f'SELECT "ид_канала_данных", "код_типа_датчика" FROM {schema}.map_channel'))
-    jobs = []
+    return blocks, finish, codes
+
+
+def year_tasks(blocks, year, inventory, codes, workers):
+    """Feature tasks of one year: (rows, block, channel batch), largest first, so that small
+    tasks fill the gaps instead of big ones finishing last."""
+    tasks = []
     for block in blocks:
-        channels = {ch: n for ch, n in inventory.get(block.year, {}).items() if codes.get(ch) in block.codes}
-        for batch in channel_batches(channels, settings.workers):
-            jobs.append((sum(channels[ch] for ch in batch), block, batch))
-    # Largest jobs first: small ones fill the gaps instead of big ones finishing last.
-    jobs = [(block, batch) for _, block, batch in sorted(jobs, key=lambda job: -job[0])]
-    done, total_rows = 0, 0
+        if block.year != year:
+            continue
+        channels = {ch: n for ch, n in inventory.items() if codes.get(ch) in block.codes}
+        for batch in channel_batches(channels, workers):
+            tasks.append((sum(channels[ch] for ch in batch), block, batch))
+    return sorted(tasks, key=lambda task: -task[0])
 
-    def calculate(worker, job):
-        block, batch = job
-        # Both src and lookback use the same complete channels. Retain the original
-        # L-day buffer, last event before the buffer, microsecond bounds and math.
-        query = block.query.replace('WHERE e."тип_датчика" IN',
-                                    'WHERE e."ид_канала_данных" = ANY(%s) AND e."тип_датчика" IN')
-        query = query.replace('WHERE mc."код_типа_датчика" IN',
-                              'WHERE mc."ид_канала_данных" = ANY(%s) AND mc."код_типа_датчика" IN')
-        # The same kept rows, without label joins in the scalar MAX lookup. This
-        # lets PostgreSQL find the previous event through a backward index scan.
-        query = query.replace("FROM ml.dataset_events z", "FROM ml.event_storage z")
-        query = query.replace('WHERE z."ид_канала_данных"', 'WHERE z.is_clean AND z."ид_канала_данных"')
-        query = query.replace("ml.", f"{schema}.")
-        return worker.execute(query, (batch, batch)).rowcount
 
-    def finished(rows):
-        nonlocal done, total_rows
-        done += 1
-        total_rows += rows
-        progress(f"Расчёт ML-признаков: {done} из {len(jobs)} блоков", counts)
+def calculate(worker, schema, block, batch) -> int:
+    # Both src and lookback use the same complete channels. Retain the original
+    # L-day buffer, last event before the buffer, microsecond bounds and math.
+    query = block.query.replace('WHERE e."тип_датчика" IN',
+                                'WHERE e."ид_канала_данных" = ANY(%s) AND e."тип_датчика" IN')
+    query = query.replace('WHERE mc."код_типа_датчика" IN',
+                          'WHERE mc."ид_канала_данных" = ANY(%s) AND mc."код_типа_датчика" IN')
+    # The same kept rows, without label joins in the scalar MAX lookup. This
+    # lets PostgreSQL find the previous event through a backward index scan.
+    query = query.replace("FROM ml.dataset_events z", "FROM ml.event_storage z")
+    query = query.replace('WHERE z."ид_канала_данных"', 'WHERE z.is_clean AND z."ид_канала_данных"')
+    query = query.replace("ml.", f"{schema}.")
+    return worker.execute(query, (batch, batch)).rowcount
 
-    progress(f"Расчёт ML-признаков: 0 из {len(jobs)} блоков", counts)
-    run_jobs(url, settings, jobs, calculate, finished)
-    progress("Индексирование ML-признаков", counts)
+
+def ml_index_columns(finish):
+    """Columns of the canonical index on dataset_ml, e.g. '("ид_канала_данных", ...)'.
+    A plain index with the same columns built on a partition beforehand is attached by
+    the canonical CREATE INDEX instead of being built again."""
+    match = re.search(r'CREATE INDEX "[^"]+" ON ml\.dataset_ml (\([^()]+\));', finish)
+    return match[1] if match else None
+
+
+def without_wal(conn) -> bool:
+    """With wal_level = minimal (the ASTRA container) a table made durable in one transaction
+    is written once and fsynced, instead of being written twice: to WAL and to the table."""
+    return conn.execute("SELECT current_setting('wal_level') = 'minimal'").fetchone()[0]
+
+
+def fill_unlogged(conn, schema, years) -> None:
+    """The features of a year are written without WAL; finish_year makes them durable."""
+    for year in years:
+        conn.execute(f"ALTER TABLE {schema}.dataset_ml_{year} SET UNLOGGED")
+
+
+def finish_year(worker, schema, year, columns, unlogged, settings, spare_workers=0) -> None:
+    """The year's features are complete: made durable (if filled without WAL) and indexed
+    while in RAM. In one transaction, so with wal_level = minimal neither is WAL-logged."""
+    worker.execute(f"SET maintenance_work_mem = '{settings.maintenance_mem_mb}MB'")
+    worker.execute(f"SET max_parallel_maintenance_workers = {spare_workers}")
+    with worker.transaction():
+        if unlogged:
+            worker.execute(f"ALTER TABLE {schema}.dataset_ml_{year} SET LOGGED")
+        if columns:
+            worker.execute(f"CREATE INDEX ON {schema}.dataset_ml_{year} {columns}")
+
+
+def finish_features(conn, schema, settings, finish, execute):
     settings.configure_indexing(conn)
     execute(conn, finish, schema)
-    return total_rows
