@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from astra_pipeline.csv_input import RAW, iter_events
+import random
+
+from astra_pipeline.csv_input import PREPARED, RAW, EventParser, iter_events, prepared_event
 from astra_pipeline.ingest import _header, _ranges, parse_chunk, single_line_records, splittable
 
 
@@ -57,6 +59,39 @@ class ParallelIngestTest(unittest.TestCase):
             ranges = _ranges(path, start, chunk)
             with self.subTest(chunk=chunk):
                 self.assertFalse(all(single_line_records(str(path), header, a, b) for a, b in ranges))
+
+
+class EventParserTest(unittest.TestCase):
+    """The memoised parser must equal prepared_event row for row, errors included."""
+
+    def outcome(self, call):
+        try:
+            return ("ok", call())
+        except (ValueError, TypeError, OverflowError) as error:
+            return (type(error).__name__, str(error))
+
+    def check(self, role, names, rows):
+        parse = EventParser(names, role)
+        for row in rows:
+            self.assertEqual(self.outcome(lambda: parse(row)),
+                             self.outcome(lambda: prepared_event(dict(zip(names, row)), role)), row)
+
+    def test_same_results_and_errors_as_prepared_event(self):
+        rng = random.Random(7)
+        values = ["21.5", " 3 ", "1_000", "1e5", "inf", "nan", "-0.00", "", "Обнаружено движение",
+                  "01.01.1970 03:00:00", "01.01.1970 03:00:01", "05.03.2024 10:00:00", "31.02.2024 10:00:00",
+                  "В норме, 3", "0,5", "x"]
+        alarms = ["t", "f", "T", " true ", "0", "1", "yes", "", "FALSE"]
+        dates = ["2024-01-04", "04.01.2024", "4.1.2024", "2031-01-01", "2018-12-31", "31.02.2024", " 2023-06-01 "]
+        times = ["11:30:31", "00:00:00", "23:59:59.123456", "25:00:00", " 07:05:00", "7:5"]
+        ids = ["1", "2", " 3", "x", "4.0"]
+        raw = [[rng.choice(ids), rng.choice(["10", "11", "y"]), rng.choice(dates), rng.choice(times),
+                rng.choice(alarms), rng.choice(values)] for _ in range(4000)]
+        self.check("events", RAW, raw)
+        stamps = ["2024-01-04 11:30:31", "2024-01-04T11:30:31", "2031-01-01 00:00:00", "bad", " 2023-06-01 10:00:00 "]
+        prepared = [[rng.choice(ids), "10", rng.choice(alarms), rng.choice(values), rng.choice(stamps),
+                     "text", "", "", ""] for _ in range(2000)]
+        self.check("prepared_events", PREPARED, prepared)
 
 
 if __name__ == "__main__":

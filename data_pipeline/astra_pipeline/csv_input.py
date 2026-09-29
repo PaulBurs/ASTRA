@@ -72,6 +72,66 @@ def prepared_event(row: dict, role: str) -> tuple:
             value.value_type, value.number, value.dt, value.text)
 
 
+_ALARMS = {"t", "f", "true", "false", "1", "0"}
+_CACHE_LIMIT = 1_000_000
+
+
+class EventParser:
+    """prepared_event for one file header: the same checks in the same order with the same
+    messages, but columns are taken by position (no dict per row) and the pure parts - the
+    value, the alarm flag, a dotted date - are memoised per distinct string. Journals repeat
+    a few thousand states and flags millions of times."""
+
+    def __init__(self, names: list[str], role: str):
+        pos = {name: index for index, name in enumerate(names)}
+        if role == "events":
+            self.columns = (pos["ид_события"], pos["ид_канала_данных"], pos["дата"], pos["время"],
+                            pos["тревожное"], pos["значение_датчика"])
+        else:
+            self.columns = (pos["ид_события"], pos["ид_канала_данных"], pos["дата_время_события"], None,
+                            pos["тревожное_raw"], pos["значение_датчика_raw"])
+        self.values, self.alarms, self.dates = {}, {}, {}
+
+    def __call__(self, row: list[str]) -> tuple:
+        i_id, i_channel, i_date, i_time, i_alarm, i_value = self.columns
+        event_id, channel_id = int(row[i_id]), int(row[i_channel])
+        if i_time is not None:
+            date = row[i_date].strip()
+            if "." in date:
+                iso = self.dates.get(date)
+                if iso is None:
+                    iso = datetime.strptime(date, "%d.%m.%Y").date().isoformat()
+                    self._remember(self.dates, date, iso)
+                date = iso
+            ts = parse_ts(date + " " + row[i_time].strip())
+        else:
+            ts = parse_ts(row[i_date])
+        if not 2019 <= ts.year <= 2026:
+            raise ValueError("Алгоритм data_pipeline поддерживает события за 2019–2026 годы")
+        alarm = row[i_alarm]
+        flag = self.alarms.get(alarm)
+        if flag is None:
+            if alarm.strip().lower() not in _ALARMS:
+                raise ValueError("Неизвестное значение признака тревожности")
+            flag = "t" if parse_alarm(alarm.strip()) else "f"
+            self._remember(self.alarms, alarm, flag)
+        raw = row[i_value]
+        parsed = self.values.get(raw)
+        if parsed is None:
+            value = parse_value(raw)
+            if value.number is not None and not math.isfinite(value.number):
+                raise ValueError("Числовое значение должно быть конечным")
+            parsed = (value.value_type, value.number, value.dt, value.text)
+            self._remember(self.values, raw, parsed)
+        return (event_id, channel_id, flag, raw, ts, *parsed)
+
+    @staticmethod
+    def _remember(cache: dict, key, value) -> None:
+        if len(cache) >= _CACHE_LIMIT:
+            cache.clear()
+        cache[key] = value
+
+
 def iter_events(path: Path, role: str):
     with csv_rows(path) as reader:
         for row in reader:
