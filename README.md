@@ -244,6 +244,16 @@ Docker-команды через `sudo` и при необходимости з�
 её через systemd. Для недоступного rootless/remote/Desktop context выводится ошибка:
 скрипт не переключает его на другой Docker.
 
+На некоторых Ubuntu с Docker из snap AppArmor запрещает Docker останавливать
+контейнеры, поэтому даже `sudo docker stop` завершается сообщением
+`cannot stop container: permission denied`. `./astra.sh` распознаёт этот точный
+сбой, останавливает только процессы контейнеров текущего проекта и повторяет
+команду один раз. PostgreSQL volume и загруженная база при этом сохраняются;
+чужие контейнеры не затрагиваются. Автовосстановление можно отключить через
+`ASTRA_AUTO_REPAIR_DOCKER=0`. Если восстановление невозможно, launcher выводит
+ссылку на известную проблему пакета Docker для Ubuntu и завершает работу без
+ложного сообщения об успешном запуске.
+
 Если Docker ещё не установлен, `./astra.sh` в Linux установит его сам:
 скачает официальный скрипт [get.docker.com](https://get.docker.com) (Ubuntu, Debian,
 Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin через `sudo`,
