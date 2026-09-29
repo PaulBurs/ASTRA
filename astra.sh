@@ -83,8 +83,8 @@ show_start_failure() {
 
 show_network_diagnostics() {
     # db-init reaches PostgreSQL by the service name: show where the containers really are.
-    local container_id network
-    container_id="$(astra_compose ps -q postgres 2>/dev/null | head -n 1)"
+    local container_id="" network
+    read -r container_id < <(astra_compose ps -q postgres 2>/dev/null) || true
     [[ -n "$container_id" ]] || return 0
     echo >&2
     echo "Сеть Docker для PostgreSQL:" >&2
