@@ -7,6 +7,7 @@ cd "$PROJECT_DIR"
 # shellcheck source=scripts/docker-compose.sh
 source "$PROJECT_DIR/scripts/docker-compose.sh"
 
+APP_URL="http://127.0.0.1:5173"
 COMMAND="${1:-run}"
 
 usage() {
@@ -51,41 +52,25 @@ wait_for_services() {
     return 1
 }
 
-service_url() {
-    local service="$1" container_port="$2" binding="" published_port
-    while IFS= read -r binding; do
-        [[ -n "$binding" ]] && break
-    done < <(astra_compose port "$service" "$container_port")
-    published_port="${binding##*:}"
-    if [[ ! "$published_port" =~ ^[0-9]+$ ]]; then
-        echo "Ошибка: Docker не сообщил внешний порт сервиса $service." >&2
-        return 1
-    fi
-    printf 'http://127.0.0.1:%s' "$published_port"
-}
-
 start_project() {
-    local app_url api_url
     if [[ "$COMMAND" == quick ]]; then
-        astra_compose_with_recovery up -d
+        astra_compose up -d
     else
-        astra_compose_with_recovery up -d --build
+        astra_compose up -d --build
     fi
     wait_for_services
-    app_url="$(service_url frontend 5173)"
-    api_url="$(service_url backend 8000)"
     echo
-    echo "ASTRA готова: $app_url"
-    echo "API: $api_url/docs"
+    echo "ASTRA готова: $APP_URL"
+    echo "API: http://127.0.0.1:8000/docs"
     if [[ "${ASTRA_OPEN_BROWSER:-1}" == 1 ]] && command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$app_url" >/dev/null 2>&1 &
+        xdg-open "$APP_URL" >/dev/null 2>&1 &
     fi
 }
 
 check_project() {
     # No host npm, Python, curl or .venv is required.
     astra_compose build backend frontend
-    astra_compose_with_recovery up -d postgres db-init
+    astra_compose up -d postgres db-init
     echo "Backend tests..."
     astra_compose run --rm --no-deps \
         -e DATA_SOURCE=dummy -e ML_DATA_SOURCE=dummy -e ML_SERVICE_URL= \
@@ -110,7 +95,7 @@ echo "Docker Compose: $(astra_compose_name)"
 case "$COMMAND" in
     run|quick|rebuild) start_project ;;
     check) check_project ;;
-    stop) astra_compose_with_recovery down; echo "ASTRA остановлена. Загруженная БД сохранена." ;;
+    stop) astra_compose down; echo "ASTRA остановлена. Загруженная БД сохранена." ;;
     status) astra_compose ps ;;
     logs) astra_compose logs -f ;;
 esac

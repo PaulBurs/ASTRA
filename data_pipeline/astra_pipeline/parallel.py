@@ -7,9 +7,27 @@ from threading import Event, Lock
 import psycopg
 
 
+def available_cpus() -> int:
+    """CPUs this process may really use: CPU affinity (taskset) and the cgroup quota
+    (docker --cpus), not every core of the machine as os.cpu_count() reports."""
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except AttributeError:                      # not Linux
+        cpus = os.cpu_count() or 4
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as file:
+            quota, period = file.read().split()
+        if quota != "max":
+            cpus = min(cpus, max(1, -(-int(quota) // int(period))))
+    except (OSError, ValueError):
+        pass
+    return cpus
+
+
 def default_workers() -> int:
-    # Half of the hardware threads: SQL workers and PostgreSQL share one machine.
-    return max(2, min(8, (os.cpu_count() or 4) // 2))
+    # One worker per available CPU, 2..8: on 4 CPUs 4 workers were 8 % faster than 2
+    # (data_pipeline/README.md); more than 8 SQL sessions only compete for the disk.
+    return max(2, min(8, available_cpus()))
 
 
 @dataclass(frozen=True)
