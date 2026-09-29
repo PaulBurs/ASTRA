@@ -1,318 +1,52 @@
-# ASTRA — SQL / PostgreSQL
-
-Этот каталог содержит SQL-часть проекта ASTRA.
-
-Задачи SQL-модуля:
-
-- диагностика структуры PostgreSQL;
-- индексы;
-- оптимизация запросов;
-- SQL-запросы, используемые backend repositories;
-- документация схемы данных;
-- подготовка БД для ML и backend.
-
-SQL-модуль не содержит:
-
-- REST API;
-- frontend;
-- ML feature engineering;
-- Python business logic.
-
----
-
-# Архитектура
-
-```text
-PostgreSQL
-    ↓
-sql/
-    ↓
-backend/app/repositories/
-    ↓
-backend services
-    ↓
-REST API / ML
-```
-
-Backend не должен распространять SQL-запросы по всему проекту.
-
-Работа с PostgreSQL должна быть сосредоточена в repository layer.
-
----
-
-# Источник данных
-
-Рабочая модель данных содержит три уровня:
-
-```text
-Объект
-    ↓
-Канал / датчик
-    ↓
-Событие
-```
-
-Связи:
-
-```text
-ид_объект
-```
-
-связывает справочник объектов со справочником каналов.
-
-```text
-ид_канала_данных
-```
-
-связывает справочник каналов с журналом событий.
-
----
-
-# Известная таблица событий
-
-Физическое имя:
-
-```text
-ext_journal_prepared
-```
-
-Основные поля:
-
-```text
-ид_события
-ид_канала_данных
-тревожное_raw
-значение_датчика_raw
-дата_время_события
-тип_значения
-значение_число
-значение_дата_время
-значение_текст
-```
-
-Для backend и ML в первую очередь используются:
-
-```text
-ид_события
-ид_канала_данных
-дата_время_события
-тип_значения
-значение_число
-значение_дата_время
-значение_текст
-```
-
----
-
-# Типы значений
-
-Поле:
-
-```text
-тип_значения
-```
-
-может принимать:
-
-```text
-numeric
-binary
-datetime
-text
-```
-
-Backend не должен повторно парсить `значение_датчика_raw`,
-если подготовленные типизированные значения уже существуют.
-
----
-
-# Объём данных
-
-Журнал содержит сотни миллионов событий.
-
-Поэтому запрещены production-запросы вида:
-
-```sql
-SELECT *
-FROM ext_journal_prepared;
-```
-
-Без временного диапазона и фильтра по каналам.
-
-Любые запросы истории должны использовать:
-
-```text
-ид_канала_данных
-+
-дата_время_события
-```
-
-и, где необходимо:
-
-```text
-LIMIT
-```
-
----
-
-# ML inference
-
-Online prediction работает с ограниченным временным окном одного
-канала.
-
-Основной шаблон:
-
-```text
-sensor_id
-+
-start
-+
-end
-+
-limit
-```
-
-Backend implementation:
-
-```text
-backend/app/repositories/postgres_ml_data_repository.py
-```
-
----
-
-# ML training
-
-Обучение может работать с большим количеством каналов и большим
-временным диапазоном.
-
-История должна читаться потоково batch'ами.
-
-Backend implementation:
-
-```text
-backend/app/repositories/postgres_training_data_repository.py
-```
-
-Запрещено загружать весь архив в память Python одним запросом.
-
----
-
-# Справочник каналов
-
-Из документации известны необходимые поля:
-
-```text
-ид_канала_данных
-тип_инж_системы
-тип_датчика
-тег_инженерной_системы
-название_датчика
-ид_объект
-```
-
-Но физическое имя таблицы справочника пока неизвестно.
-
-Поэтому до получения настоящего имени таблицы
-не создавать production SQL, предполагающий её название.
-
-После получения имени необходимо реализовать:
-
-```text
-PostgresSensorCatalogRepository
-```
-
----
-
-# Индексы
-
-Для ML и backend особенно важен доступ по:
-
-```text
-ид_канала_данных
-+
-дата_время_события
-```
-
-Индексы находятся в:
-
-```text
-sql/indexes/
-```
-
-Перед созданием индекса на большой production БД необходимо:
-
-1. проверить существующие индексы;
-2. выполнить EXPLAIN;
-3. оценить свободное место;
-4. использовать CREATE INDEX CONCURRENTLY там, где это необходимо.
-
----
-
-# Диагностика
-
-SQL для проверки реальной БД находится в:
-
-```text
-sql/diagnostics/
-```
-
-Диагностические запросы должны быть read-only.
-
----
-
-# Правило проекта
-
-SQL-разработчик отвечает за:
-
-```text
-схема
-+
-индексы
-+
-эффективные запросы
-```
-
-Backend-разработчик отвечает за:
-
-```text
-SQL result
-→
-repository
-→
-service
-```
-
-ML-разработчик отвечает за:
-
-```text
-полученные события
-→
-features
-→
-model
-```
-
-## Быстрая инициализация локальной PostgreSQL
-
-Из корня проекта:
-
-```bash
-./sql/init-dev.sh
-```
-
-Команда:
-
-- запускает PostgreSQL;
-- ждёт готовности БД;
-- создаёт предметную схему ASTRA;
-- создаёт индексы;
-- проверяет наличие основных таблиц.
-
-Для добавления демонстрационных данных:
+# sql
+
+SQL-скрипты базовой схемы ASTRA для PostgreSQL 16: DDL, индексы, эталонные запросы, диагностика и тестовые данные.
+
+Модель данных: объект → канал (датчик) → событие.
+
+## Структура
+
+| Путь | Что делает | Технология |
+|---|---|---|
+| `schema/01_core_schema.sql` | Создаёт таблицы `astra_objects`, `astra_channels`, `ext_journal_prepared` и CHECK-ограничение `chk_event_value_type` | PostgreSQL DDL, `CREATE TABLE IF NOT EXISTS` |
+| `indexes/01_ext_journal_sensor_time.sql` | Индекс `idx_ext_journal_sensor_time_event (sensor_id, occurred_at, event_id)` для выборок истории канала | B-tree, `CREATE INDEX CONCURRENTLY IF NOT EXISTS` |
+| `indexes/02_astra_channels_catalog.sql` | Индексы `idx_astra_channels_system_type (engineering_system, sensor_type)` и `idx_astra_channels_object (object_id)` | B-tree, `CONCURRENTLY` |
+| `queries/latest_sensor_event.sql` | Последнее событие канала | SQL, именованные параметры SQLAlchemy |
+| `queries/ml_inference_window.sql` | События канала в окне `[:start, :end]`, по убыванию времени, `LIMIT :limit` | SQL, SQLAlchemy |
+| `queries/ml_training_events.sql` | События списка каналов `IN :sensor_ids` в `[:start, :end)`, по каналу и времени | SQL, SQLAlchemy |
+| `diagnostics/01_ext_journal_info.sql` | Наличие, колонки и индексы `ext_journal_prepared` | `information_schema`, `pg_indexes`; только чтение |
+| `diagnostics/02_database_inventory.sql` | Текущая БД/пользователь, схемы, таблицы, представления, размеры таблиц | `information_schema`, `pg_stat_user_tables`; только чтение |
+| `seed/01_dev_seed.sql` | 1 объект, 2 газовых канала, 3 события для локальной разработки | Транзакция, `INSERT … ON CONFLICT DO NOTHING` |
+| `init-dev.sh` | Поднимает `postgres`, ждёт готовности, применяет schema + indexes; с `--seed` — ещё seed; проверяет наличие таблиц | Bash, Docker Compose, `psql -v ON_ERROR_STOP=1` |
+
+## Схема
+
+| Таблица | Ключ | Основные колонки |
+|---|---|---|
+| `astra_objects` | `object_id` | `parent_id`, `hierarchy_level`, `object_type`, `display_name` |
+| `astra_channels` | `sensor_id` | `engineering_system`, `sensor_type` (NOT NULL), `engineering_system_tag`, `sensor_name`, `object_id` → FK `astra_objects` |
+| `ext_journal_prepared` | `event_id` | `sensor_id`, `occurred_at`, `value_type` ∈ {`numeric`,`binary`,`datetime`,`text`}, `numeric_value`, `datetime_value`, `text_value`, `alarm_raw`, `sensor_value_raw` |
+
+Все скрипты идемпотентны (`IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS`, `ON CONFLICT`).
+Индексы создаются с `CONCURRENTLY`, поэтому их нельзя выполнять внутри транзакции.
+
+## Использование
+
+| Где | Что применяется |
+|---|---|
+| `compose.yaml`, сервис `db-init` (образ `postgres:16`) | Монтирует `./sql` в `/sql:ro`, ждёт PostgreSQL и выполняет `schema/01_core_schema.sql`, `indexes/01…`, `indexes/02…`. Seed при старте не применяется. `backend` стартует после успешного завершения `db-init`. |
+| `sql/init-dev.sh` | Ручная инициализация: `./sql/init-dev.sh` или `./sql/init-dev.sh --seed`. Использует `scripts/docker-compose.sh`. |
+| `diagnostics/` | Запускаются вручную через `psql`. |
+
+Ручной запуск:
 
 ```bash
 ./sql/init-dev.sh --seed
+docker compose exec -T postgres psql -U astra -d astra < sql/diagnostics/02_database_inventory.sql
 ```
 
-Development seed содержит только искусственные тестовые данные
-и не является частью исходного датасета заказчика.
+## Ограничения
+
+- `queries/*.sql` в коде не загружаются (ссылок из `backend/` и `ml/` нет); это справочные запросы.
+- `queries/*.sql` используют русские имена колонок (`ид_события`, `ид_канала_данных`, `дата_время_события`, …), а `schema/01_core_schema.sql` — английские (`event_id`, `sensor_id`, `occurred_at`, …). На схеме из этой папки запросы не выполнятся; они соответствуют журналу, который строит [`../data_pipeline/sql/`](../data_pipeline/sql/).
+- Полная сборка БД из исходных CSV — в [`../data_pipeline/`](../data_pipeline/).
