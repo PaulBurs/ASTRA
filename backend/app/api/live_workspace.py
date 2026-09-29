@@ -121,6 +121,12 @@ def forecasts(dataset_id: UUID = Depends(ready)):
     return {"job": forecast_jobs.latest_job(engine, dataset_id), "predictions": forecast_jobs.predictions(engine, dataset_id)}
 
 
+@router.get("/forecasts/job")
+def forecast_job(dataset_id: UUID = Depends(ready)):
+    """Only the job state: cheap to poll, unlike the full list of predictions."""
+    return {"job": forecast_jobs.latest_job(engine, dataset_id), "preparing": forecast_jobs.preparing(engine)}
+
+
 @router.post("/forecasts", status_code=202)
 def forecast_all(dataset_id: UUID = Depends(ready), ml_service=Depends(get_ml_service)):
     # Sensors of one object go into the same batches: ML reads every object once per batch.

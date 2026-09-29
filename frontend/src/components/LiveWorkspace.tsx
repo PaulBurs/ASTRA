@@ -4,6 +4,7 @@ import { datasetRequest, type ForecastJob, type Forecasts, type LiveCheck, type 
 import { getPrediction } from "../api/ml"
 import { navigate, type Route } from "../state/navigation"
 import { formatDate, outcomes } from "../state/workspace"
+import { forecastTiming } from "../utils/forecastTiming"
 import { DetailPanel } from "./DetailPanel"
 import { EmptyWorkspace } from "./EmptyWorkspace"
 import "./DemoWorkspace.css"
@@ -179,7 +180,7 @@ function LiveTable({ page, selectedId, user, workspace, forecasts, details, deta
     </div>}
     <div className="demo-action-buttons demo-reload">{page === "warnings" && <><button className="primary" disabled={busy || calculating || !workspace.sensors.length} onClick={() => void onPredictAll()}>{calculating ? "Рассчитываем прогнозы…" : "Рассчитать прогноз всех датчиков"}</button>{calculating && !technician && <button className="live-stop-button" disabled={busy || job?.status === "stopping"} onClick={() => void onStopPredictions()}>{job?.status === "stopping" ? "Останавливаем…" : "Остановить прогноз"}</button>}</>}<button disabled={busy} onClick={onReload}>Обновить данные</button></div>
     {job && <section className="live-progress" aria-live="polite"><strong>{job.status === "running" ? "Расчёт прогноза" : job.status === "stopping" ? "Остановка расчёта" : job.status === "completed" ? "Расчёт завершён" : job.status === "stopped" ? "Расчёт остановлен" : "Расчёт прерван"}: {job.completed.toLocaleString("ru-RU")} из {job.total.toLocaleString("ru-RU")}</strong>
-      <progress max={job.total || 1} value={job.completed}/><span>Готово: {job.predicted} · Недостаточно данных: {job.skipped} · Ошибок: {job.failed}</span>
+      <progress max={job.total || 1} value={job.completed}/><span>Готово: {job.predicted} · Недостаточно данных: {job.skipped} · Ошибок: {job.failed}</span>{forecastTiming(job) && <span>{forecastTiming(job)}</span>}
       {job.status === "running" && <span>Можно переходить между разделами и закрывать страницу. Расчёт продолжится на сервере.</span>}{job.status === "stopping" && <span>Новые датчики больше не добавляются. Завершаем уже начатые расчёты.</span>}{job.error && <span role="alert">{job.error}</span>}
     </section>}
     {error && <p className="live-error" role="alert">{error}</p>}
