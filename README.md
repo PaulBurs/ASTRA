@@ -237,12 +237,27 @@ PostgreSQL, создаст пустую схему и запустит Source Ag
 Нужен интернет для загрузки базовых образов и зависимостей. Последующие сборки
 используют Docker-кэш. Тесты при обычном запуске не выполняются.
 
+Перед каждым запуском launcher пересоздаёт только служебный одноразовый контейнер
+`db-init` и применяет идемпотентные SQL-файлы заново. Контейнер PostgreSQL и его
+volume не удаляются, поэтому загруженная база сохраняется. Это также позволяет
+автоматически продолжить работу после прерванного первого запуска.
+
 Если текущему пользователю недоступен системный Docker socket, скрипт выполнит
 Docker-команды через `sudo` и при необходимости запросит пароль. Запускать весь
 скрипт через `sudo`, менять права на `docker.sock` или вручную объявлять shell-функции
 не требуется. Если служба системного Docker остановлена, скрипт попытается запустить
 её через systemd. Для недоступного rootless/remote/Desktop context выводится ошибка:
 скрипт не переключает его на другой Docker.
+
+На некоторых Ubuntu с Docker из snap AppArmor запрещает Docker останавливать
+контейнеры, поэтому даже `sudo docker stop` завершается сообщением
+`cannot stop container: permission denied`. `./astra.sh` распознаёт этот точный
+сбой, останавливает только процессы контейнеров текущего проекта и повторяет
+команду один раз. PostgreSQL volume и загруженная база при этом сохраняются;
+чужие контейнеры не затрагиваются. Автовосстановление можно отключить через
+`ASTRA_AUTO_REPAIR_DOCKER=0`. Если восстановление невозможно, launcher выводит
+ссылку на известную проблему пакета Docker для Ubuntu и завершает работу без
+ложного сообщения об успешном запуске.
 
 Если Docker ещё не установлен, `./astra.sh` в Linux установит его сам:
 скачает официальный скрипт [get.docker.com](https://get.docker.com) (Ubuntu, Debian,
@@ -256,10 +271,10 @@ Fedora, RHEL, CentOS), установит Docker Engine и Docker Compose plugin
 Автоустановку можно отключить: `ASTRA_AUTO_INSTALL_DOCKER=0 ./astra.sh`. В macOS
 и Windows установите [Docker Desktop](https://docs.docker.com/desktop/) вручную.
 
-После проверки готовности сервисов откроется приложение:
-
-- Frontend: http://127.0.0.1:5173
-- API/Swagger: http://127.0.0.1:8000/docs
+После проверки готовности сервисов launcher напечатает адреса приложения и
+API/Swagger и откроет приложение в браузере. Docker сам выбирает свободные
+локальные порты, поэтому уже работающие PostgreSQL, backend или frontend других
+проектов не мешают запуску ASTRA. Пользователю не нужно искать или настраивать порты.
 
 В режиме v1.0.1 данные появятся после загрузки CSV через вкладку «Данные».
 Демонстрационные строки при запуске в PostgreSQL не добавляются.
@@ -334,15 +349,20 @@ frontend
 
 ## PostgreSQL
 
-```text
-localhost:5432
+PostgreSQL доступен backend и ML внутри Docker-сети по адресу `postgres:5432`.
+Порт `5432` на компьютере не занимается, поэтому ASTRA может запускаться рядом
+с локально установленным PostgreSQL. Для консоли базы используйте:
+
+```bash
+docker compose exec postgres psql -U astra -d astra
 ```
+
+ML-сервис аналогично доступен только контейнерам ASTRA по адресу `ml:9000`.
 
 ## Backend
 
-```text
-localhost:8000
-```
+Внешний адрес backend с автоматически выбранным портом печатает `./astra.sh`.
+Внутри Docker-сети backend всегда доступен как `backend:8000`.
 
 Backend работает с Uvicorn в режиме reload. Исходники backend подключены в контейнер через bind mount.
 
@@ -360,9 +380,8 @@ Uvicorn автоматически перезапускается
 
 ## Frontend
 
-```text
-localhost:5173
-```
+Внешний адрес frontend с автоматически выбранным портом печатает `./astra.sh`
+и автоматически открывает в браузере.
 
 Frontend работает через Vite dev server. `frontend/src` подключён через bind mount.
 
@@ -439,7 +458,9 @@ SensorDetails.tsx
 frontend/src/config.ts
 ```
 
-URL backend берётся из:
+По умолчанию браузер использует относительный `/api`, а Vite перенаправляет его
+на `backend:8000` внутри Docker. Для отдельного frontend вне Compose адрес можно
+переопределить:
 
 ```env
 VITE_API_URL=http://127.0.0.1:8000
@@ -728,11 +749,7 @@ API и service layer при этом менять не должны.
 
 # REST API
 
-Интерактивная документация FastAPI:
-
-```text
-http://127.0.0.1:8000/docs
-```
+Адрес интерактивной документации FastAPI печатает `./astra.sh` после запуска.
 
 ## System
 
@@ -1312,9 +1329,7 @@ cd ..
 
 ## Я хочу посмотреть Swagger
 
-```text
-http://127.0.0.1:8000/docs
-```
+Откройте адрес `API`, который напечатал `./astra.sh`, с окончанием `/docs`.
 
 ## Я хочу остановить всё
 
@@ -1359,31 +1374,32 @@ docker compose logs -f postgres
 Backend health:
 
 ```bash
-curl http://127.0.0.1:8000/api/health
+ASTRA_API_URL="http://$(docker compose port backend 8000)"
+curl "$ASTRA_API_URL/api/health"
 ```
 
 Dashboard:
 
 ```bash
-curl http://127.0.0.1:8000/api/dashboard
+curl "$ASTRA_API_URL/api/dashboard"
 ```
 
 Sensors:
 
 ```bash
-curl http://127.0.0.1:8000/api/sensors
+curl "$ASTRA_API_URL/api/sensors"
 ```
 
 Один датчик:
 
 ```bash
-curl http://127.0.0.1:8000/api/sensors/56682
+curl "$ASTRA_API_URL/api/sensors/56682"
 ```
 
 ML prediction:
 
 ```bash
-curl http://127.0.0.1:8000/api/ml/predict/56682
+curl "$ASTRA_API_URL/api/ml/predict/56682"
 ```
 
 Git status:

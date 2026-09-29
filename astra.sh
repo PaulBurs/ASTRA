@@ -7,7 +7,6 @@ cd "$PROJECT_DIR"
 # shellcheck source=scripts/docker-compose.sh
 source "$PROJECT_DIR/scripts/docker-compose.sh"
 
-APP_URL="http://127.0.0.1:5173"
 COMMAND="${1:-run}"
 
 usage() {
@@ -52,25 +51,68 @@ wait_for_services() {
     return 1
 }
 
+service_url() {
+    local service="$1" container_port="$2" binding="" published_port
+    while IFS= read -r binding; do
+        [[ -n "$binding" ]] && break
+    done < <(astra_compose port "$service" "$container_port")
+    published_port="${binding##*:}"
+    if [[ ! "$published_port" =~ ^[0-9]+$ ]]; then
+        echo "Ошибка: Docker не сообщил внешний порт сервиса $service." >&2
+        return 1
+    fi
+    printf 'http://127.0.0.1:%s' "$published_port"
+}
+
+reset_db_init() {
+    # Compose reuses completed one-shot containers and cannot see changes inside
+    # bind-mounted SQL files. Recreate db-init on every run so migrations are
+    # applied and a container left by a failed launch cannot poison the next one.
+    astra_compose_with_recovery rm -sf db-init >/dev/null
+}
+
+show_start_failure() {
+    echo >&2
+    echo "ASTRA не запустилась. Состояние сервисов:" >&2
+    astra_compose ps -a >&2 || true
+    echo >&2
+    echo "Журнал инициализации базы данных:" >&2
+    astra_compose logs --no-color --tail=100 db-init postgres >&2 || true
+}
+
 start_project() {
+    local app_url api_url
+    reset_db_init
     if [[ "$COMMAND" == quick ]]; then
-        astra_compose up -d
+        if ! astra_compose_with_recovery up -d; then
+            show_start_failure
+            return 1
+        fi
     else
-        astra_compose up -d --build
+        if ! astra_compose_with_recovery up -d --build; then
+            show_start_failure
+            return 1
+        fi
     fi
     wait_for_services
+    app_url="$(service_url frontend 5173)"
+    api_url="$(service_url backend 8000)"
     echo
-    echo "ASTRA готова: $APP_URL"
-    echo "API: http://127.0.0.1:8000/docs"
+    echo "ASTRA готова: $app_url"
+    echo "API: $api_url/docs"
     if [[ "${ASTRA_OPEN_BROWSER:-1}" == 1 ]] && command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$APP_URL" >/dev/null 2>&1 &
+        xdg-open "$app_url" >/dev/null 2>&1 &
     fi
 }
 
 check_project() {
     # No host npm, Python, curl or .venv is required.
     astra_compose build backend frontend
-    astra_compose up -d postgres db-init
+    reset_db_init
+    if ! astra_compose_with_recovery up -d postgres db-init; then
+        show_start_failure
+        return 1
+    fi
     echo "Backend tests..."
     astra_compose run --rm --no-deps \
         -e DATA_SOURCE=dummy -e ML_DATA_SOURCE=dummy -e ML_SERVICE_URL= \
@@ -95,7 +137,7 @@ echo "Docker Compose: $(astra_compose_name)"
 case "$COMMAND" in
     run|quick|rebuild) start_project ;;
     check) check_project ;;
-    stop) astra_compose down; echo "ASTRA остановлена. Загруженная БД сохранена." ;;
+    stop) astra_compose_with_recovery down; echo "ASTRA остановлена. Загруженная БД сохранена." ;;
     status) astra_compose ps ;;
     logs) astra_compose logs -f ;;
 esac
