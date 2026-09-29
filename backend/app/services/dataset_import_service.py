@@ -164,6 +164,10 @@ class DatasetImportService:
             )
             build_lock = self.lock()
             update_dataset(self.engine, dataset_id, status="preparing", stage="Запуск подготовки", error=None)
+            # Checked after marking the dataset: a forecast started later sees it and refuses.
+            if forecast_jobs.running(self.engine):
+                update_dataset(self.engine, dataset_id, status="uploading", stage="Все файлы загружены")
+                raise HTTPException(409, forecast_jobs.RUNNING_MESSAGE)
             background_tasks.add_task(self.run, dataset_id, handle, build_lock)
         except BaseException:
             handle.close()
