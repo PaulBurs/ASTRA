@@ -38,19 +38,29 @@ services:
       retries: 20
   postgres:
     image: postgres:16
+    # RAM cache of the database: at most ASTRA_DB_CACHE_PERCENT (50) of the memory
+    # available to Docker, or exactly ASTRA_DB_CACHE_MB (scripts/postgres-ram-cache.sh).
+    entrypoint: ["sh", "/opt/astra/postgres-ram-cache.sh"]
+    command: ["postgres"]
     # Docker's 64 MB /dev/shm is too small for parallel index builds of the import.
     shm_size: 1g
+    # A large cache is flushed to disk on shutdown: give it time instead of killing PostgreSQL.
+    stop_grace_period: 2m
 
     environment:
       POSTGRES_DB: astra
       POSTGRES_USER: astra
       POSTGRES_PASSWORD: astra
+      ASTRA_DB_CACHE_PERCENT: ${ASTRA_DB_CACHE_PERCENT:-50}
+      ASTRA_DB_CACHE_MB: ${ASTRA_DB_CACHE_MB:-}
+      ASTRA_DB_WAL_LEVEL: ${ASTRA_DB_WAL_LEVEL:-minimal}
 
     ports:
       - "5432:5432"
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-ram-cache.sh:/opt/astra/postgres-ram-cache.sh:ro,z
 
     healthcheck:
       test:
@@ -130,7 +140,9 @@ services:
       DATASET_UPLOAD_DIR: /data/uploads
       # empty = half of the CPU threads (2..8)
       DATASET_BUILD_WORKERS: ${DATASET_BUILD_WORKERS:-}
-      DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-128}
+      # empty = sized from the RAM cache of the database (postgres service)
+      DATASET_WORK_MEM_MB: ${DATASET_WORK_MEM_MB:-}
+      DATASET_MAINTENANCE_MEM_MB: ${DATASET_MAINTENANCE_MEM_MB:-}
       DATASET_STORAGE_EXPANSION_FACTOR: ${DATASET_STORAGE_EXPANSION_FACTOR:-8}
 
     ports:
