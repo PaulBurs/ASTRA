@@ -23,7 +23,7 @@ from pathlib import Path
 import psycopg
 from psycopg import sql
 
-from .csv_input import EventParser, iter_events
+from .csv_input import EventParser, is_header, iter_events
 
 CHUNK_BYTES = int(os.getenv("DATASET_IMPORT_CHUNK_MB", "64")) * 1024 * 1024
 BLOCK = 16 * 1024 * 1024
@@ -110,7 +110,7 @@ def parse_chunk(path: Path, role: str, header: str, start: int, end: int):
     reader = csv.reader(io.StringIO(text, newline=""), dialect=dialect)
     parse = EventParser(names, role)
     for values in reader:
-        if not values:                                 # DictReader skips empty lines too
+        if not values or is_header(values, names):     # DictReader skips empty lines too
             continue
         try:
             if len(values) != len(names):

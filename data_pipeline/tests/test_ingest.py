@@ -50,6 +50,14 @@ class ParallelIngestTest(unittest.TestCase):
         self.assertEqual(str(chunked.exception), str(sequential.exception))
         self.assertIn("строка 302", str(chunked.exception))
 
+    def test_repeated_header_inside_journal_is_skipped(self):
+        rows = list(self.rows)
+        rows.insert(200, "\ufeff" + ",".join(RAW))      # journals glued together
+        path = journal(rows)
+        self.addCleanup(path.unlink)
+        self.assertEqual(parallel(path), list(iter_events(path, "events")))
+        self.assertEqual(len(parallel(path)), len(self.rows) - 1)
+
     def test_quoted_line_break_disables_splitting(self):
         rows = list(self.rows)
         rows[10] = '11,1004,2024-02-11,11:05:31,f,"две\r\nстроки"'

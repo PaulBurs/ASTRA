@@ -132,9 +132,17 @@ class EventParser:
         cache[key] = value
 
 
+def is_header(values, names: list[str]) -> bool:
+    """A header line repeated inside a journal (files glued together) - skipped, not data."""
+    return (len(values) == len(names) and names[0] in values[0]
+            and [value.lstrip("\ufeff").strip() for value in values] == names)
+
+
 def iter_events(path: Path, role: str):
     with csv_rows(path) as reader:
         for row in reader:
+            if None not in row and is_header(list(row.values()), reader.fieldnames):
+                continue
             try:
                 yield prepared_event(row, role)
             except (ValueError, TypeError, OverflowError) as error:
